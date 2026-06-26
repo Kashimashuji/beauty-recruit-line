@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     .eq("id", slot_id)
     .single();
 
-  if (slot) {
+  if (slot && process.env.LINE_CHANNEL_ACCESS_TOKEN && !process.env.LINE_CHANNEL_ACCESS_TOKEN.startsWith("replace-")) {
     const dt = new Date(slot.starts_at).toLocaleString("ja-JP", {
       timeZone: "Asia/Tokyo",
       month: "numeric",
@@ -77,10 +77,14 @@ export async function POST(req: NextRequest) {
       hour: "2-digit",
       minute: "2-digit",
     });
-    await pushText(
-      line_user_id,
-      `ご予約を承りました。\n日時：${dt}\n当日お会いできるのを楽しみにしています！`
-    );
+    try {
+      await pushText(
+        line_user_id,
+        `ご予約を承りました。\n日時：${dt}\n当日お会いできるのを楽しみにしています！`
+      );
+    } catch (e) {
+      console.warn("LINE push failed (non-fatal):", e);
+    }
   }
 
   return NextResponse.json({ ok: true, reservation: data });
