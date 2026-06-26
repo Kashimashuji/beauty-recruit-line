@@ -7,28 +7,37 @@ type Slot = { id: string; starts_at: string; remaining: number; capacity: number
 // 店舗別の見学予約。?store_id=xxx で店舗を指定。
 export default function ReservePage() {
   const [uid, setUid] = useState("");
+  const [storeId, setStoreId] = useState("");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [msg, setMsg] = useState("");
-  const storeId =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("store_id") ?? ""
-      : "";
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get("store_id") ?? "";
+    setStoreId(sid);
+
     (async () => {
-      // @ts-ignore
-      const liff = (window as any).liff;
-      if (liff) {
-        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
-        if (!liff.isLoggedIn()) return liff.login();
-        const p = await liff.getProfile();
-        setUid(p.userId);
+      // ローカル開発用: ?uid=xxx でモック
+      const devUid = params.get("uid");
+      if (devUid) {
+        setUid(devUid);
+      } else {
+        // @ts-ignore
+        const liff = (window as any).liff;
+        if (liff) {
+          await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+          if (!liff.isLoggedIn()) return liff.login();
+          const p = await liff.getProfile();
+          setUid(p.userId);
+        }
       }
-      const res = await fetch(`/api/reservations?store_id=${storeId}`);
+
+      if (!sid) return;
+      const res = await fetch(`/api/reservations?store_id=${sid}`);
       const json = await res.json();
       setSlots(json.slots ?? []);
     })();
-  }, [storeId]);
+  }, []);
 
   const book = async (slotId: string) => {
     setMsg("");

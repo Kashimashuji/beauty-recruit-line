@@ -7,6 +7,15 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const view = req.nextUrl.searchParams.get("view") ?? "reservations";
 
+  if (view === "stores") {
+    const { data, error } = await supabaseAdmin
+      .from("stores")
+      .select("id, name, salon_id")
+      .order("name");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ stores: data });
+  }
+
   if (view === "students") {
     const { data, error } = await supabaseAdmin
       .from("students")
@@ -24,4 +33,20 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ reservations: data });
+}
+
+// 予約枠の追加
+export async function POST(req: NextRequest) {
+  const { store_id, event_type, starts_at, capacity } = await req.json();
+  if (!store_id || !starts_at || !capacity) {
+    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  }
+  const { error } = await supabaseAdmin.from("reservation_slots").insert({
+    store_id,
+    event_type: event_type ?? "salon_visit",
+    starts_at,
+    capacity: Number(capacity),
+  });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }

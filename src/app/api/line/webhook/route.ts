@@ -47,7 +47,7 @@ async function handleFollow(lineUserId: string) {
 async function handleMessage(lineUserId: string, text: string) {
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("school_name, grad_year, pref_area, status")
+    .select("id, school_name, grad_year, pref_area, status, tags")
     .eq("line_user_id", lineUserId)
     .single();
 
@@ -56,51 +56,141 @@ async function handleMessage(lineUserId: string, text: string) {
     return;
   }
 
-  // 登録完了済みの場合
-  if (student.status !== "friend") {
-    await pushText(lineUserId, "ご登録ありがとうございます！\nメニューから見学予約ができます。お気軽にどうぞ。");
+  // オンボーディング中（friendステータス）
+  if (student.status === "friend") {
+    await handleOnboarding(lineUserId, text, student);
     return;
   }
 
-  // ステップ1: 学校名を収集
+  // 登録済み以降：予約フロー
+  await handleBookingFlow(lineUserId, text, student);
+}
+
+async function handleOnboarding(lineUserId: string, text: string, student: any) {
   if (!student.school_name) {
-    await supabaseAdmin
-      .from("students")
-      .update({ school_name: text })
-      .eq("line_user_id", lineUserId);
+    await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
     await pushText(lineUserId, "ありがとうございます！\n次に、卒業予定年度を教えてください。\n（例: 2027）");
     return;
   }
-
-  // ステップ2: 卒業年度を収集
   if (!student.grad_year) {
     const year = parseInt(text, 10);
     if (isNaN(year) || year < 2020 || year > 2035) {
       await pushText(lineUserId, "年度を数字で入力してください。\n（例: 2027）");
       return;
     }
-    await supabaseAdmin
-      .from("students")
-      .update({ grad_year: year })
-      .eq("line_user_id", lineUserId);
-    await pushText(lineUserId, "ありがとうございます！\n最後に、希望の勤務エリアを教えてください。\n（例: 東京都内、大阪、名古屋など）");
+    await supabaseAdmin.from("students").update({ grad_year: year }).eq("line_user_id", lineUserId);
+    await pushText(lineUserId, "ありがとうございます！\n最後に、希望の勤務エリアを教えてください。\n（例: 東京都内、大阪など）");
     return;
   }
-
-  // ステップ3: 希望エリアを収集 → 登録完了
   if (!student.pref_area) {
-    await supabaseAdmin
-      .from("students")
-      .update({
-        pref_area: text,
-        status: "registered",
-        registered_at: new Date().toISOString(),
-      })
-      .eq("line_user_id", lineUserId);
+    await supabaseAdmin.from("students").update({
+      pref_area: text,
+      status: "registered",
+      registered_at: new Date().toISOString(),
+    }).eq("line_user_id", lineUserId);
     await pushText(
       lineUserId,
-      "登録完了です！ありがとうございました。\n\nメニューから見学・説明会の予約ができます。\nご都合の良い日程をお選びください。"
+      "登録完了です！ありがとうございました🎉\n\n見学・説明会の予約をご希望の方は「予約」と送ってください。"
     );
     return;
   }
+}
+
+async function handleBookingFlow(lineUserId: string, text: string, student: any) {
+  const tags: any = student.tags ?? {};
+
+  // 「予約」キーワード → 空き枠一覧を表示
+  if (text === "予約" || text === "よやく" || text === "予約したい") {
+    const { data: slots } = await supabaseAdmin
+      .from("reservation_slots")
+      .select("id, starts_at, capacity, booked_count, event_type, stores(name)")
+      .gte("starts_at", new Date().toISOString())
+      .order("starts_at")
+      .limit(10);
+
+    const available = (slots ?? []).filter(s => s.booked_count < s.capacity);
+    if (available.length === 0) {
+      await pushText(lineUserId, "現在予約可能な枠がありません。\nまた後ほどお確かめください。");
+      return;
+    }
+
+    const eventLabel: Record<string, string> = {
+      salon_visit: "サロン見学",
+      briefing: "説明会",
+      consultation: "個別相談",
+    };
+
+    const lines = available.map((s, i) => {
+      const dt = new Date(s.starts_at).toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
+        weekday: "short", hour: "2-digit", minute: "2-digit",
+      });
+      const store = (s.stores as any)?.name ?? "";
+      const remaining = s.capacity - s.booked_count;
+      return `${i + 1}. ${dt}\n   ${store}｜${eventLabel[s.event_type] ?? s.event_type}｜残${remaining}名`;
+    });
+
+    // 選択中の枠IDリストをtagsに一時保存
+    const slotIds = available.map(s => s.id);
+    await supabaseAdmin.from("students")
+      .update({ tags: { ...tags, pending_slots: slotIds } })
+      .eq("line_user_id", lineUserId);
+
+    await pushText(
+      lineUserId,
+      `予約可能な枠は以下の通りです。\n番号を送ってください。\n\n${lines.join("\n\n")}`
+    );
+    return;
+  }
+
+  // 番号選択 → 予約実行
+  const num = parseInt(text, 10);
+  const pendingSlots: string[] = tags.pending_slots ?? [];
+  if (!isNaN(num) && num >= 1 && num <= pendingSlots.length) {
+    const slotId = pendingSlots[num - 1];
+
+    const { data, error } = await supabaseAdmin.rpc("book_slot", {
+      p_student: student.id,
+      p_slot: slotId,
+    });
+
+    // pending_slotsをクリア
+    await supabaseAdmin.from("students")
+      .update({ tags: { ...tags, pending_slots: [] } })
+      .eq("line_user_id", lineUserId);
+
+    if (error) {
+      const msg = error.message.includes("SLOT_FULL")
+        ? "申し訳ありません、その枠は満席になりました。\n「予約」と送ってほかの枠をご確認ください。"
+        : "予約処理に失敗しました。もう一度お試しください。";
+      await pushText(lineUserId, msg);
+      return;
+    }
+
+    // 予約完了メッセージ
+    const { data: slot } = await supabaseAdmin
+      .from("reservation_slots")
+      .select("starts_at, stores(name)")
+      .eq("id", slotId)
+      .single();
+
+    if (slot) {
+      const dt = new Date(slot.starts_at).toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
+        weekday: "short", hour: "2-digit", minute: "2-digit",
+      });
+      const store = (slot.stores as any)?.name ?? "";
+      await pushText(
+        lineUserId,
+        `ご予約ありがとうございます！\n\n📅 ${dt}\n📍 ${store}\n\n当日お会いできるのを楽しみにしています。\nご不明な点はお気軽にご連絡ください。`
+      );
+    }
+    return;
+  }
+
+  // その他のメッセージ
+  await pushText(
+    lineUserId,
+    "見学・説明会の予約は「予約」と送ってください。\nそのほかのご質問はスタッフにお問い合わせください。"
+  );
 }
