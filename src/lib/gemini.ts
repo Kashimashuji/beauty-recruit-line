@@ -1,10 +1,16 @@
 async function callGemini(body: object): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return "";
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-  );
+
+  // AQ.で始まるトークンはBearerヘッダー、AIzaで始まるキーはクエリパラメータ
+  const isOAuth = apiKey.startsWith("AQ.");
+  const url = isOAuth
+    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent`
+    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (isOAuth) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   if (!res.ok) return "";
   const json = await res.json();
   return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
