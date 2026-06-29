@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProfile } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
 import { searchSchools, isExactSchool } from "@/lib/schools";
 import { normalizeText } from "@/lib/normalize";
 import { DEFAULT_BOT_MESSAGES, getMsg, type BotMessages } from "@/lib/botMessages";
-import { askGemini } from "@/lib/gemini";
+import { askGemini, classifyIntent } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 
@@ -12,9 +11,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const { events } = await req.json();
   const replies: string[] = [];
-
   const quickReplies: string[] = [];
-  const push = async (to: string, text: string, buttons?: string[]) => {
+  const push = async (_to: string, text: string, buttons?: string[]) => {
     replies.push(text);
     if (buttons) quickReplies.push(...buttons);
   };
@@ -22,7 +20,6 @@ export async function POST(req: NextRequest) {
   // デモ用：最初の会社のBot設定を取得（なければデフォルト）
   const { data: companyData } = await supabaseAdmin.from("companies").select("id, settings").limit(1).single();
   const botMsg: Partial<BotMessages> = companyData?.settings ?? {};
-  const companyId: string | null = companyData?.id ?? null;
 
   for (const ev of events ?? []) {
     const lineUserId: string | undefined = ev.source?.userId;
@@ -42,7 +39,12 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, replies, quickReplies });
 }
 
-async function handleMessage(lineUserId: string, text: string, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
+async function handleMessage(
+  lineUserId: string,
+  text: string,
+  push: (to: string, text: string, buttons?: string[]) => Promise<void>,
+  botMsg: Partial<BotMessages> = {}
+) {
   const { data: student } = await supabaseAdmin
     .from("students")
     .select("id, school_name, grad_year, pref_area, status, tags")
@@ -54,7 +56,6 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
     return;
   }
 
-  // 手動対応モード中はBotが返信しない
   if (student.tags?.manual_mode) return;
 
   if (student.status === "friend") {
@@ -65,24 +66,24 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
   await handleBookingFlow(lineUserId, text, student, push, botMsg);
 }
 
-const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン|こんにちは|はじめまして|よろしく|おはよう|こんばん/.test(t);
+function staffSystemPrompt(student: any, extra = ""): string {
+  return `あなたは美容サロンの採用担当スタッフとしてLINEで学生に対応しています。
+採用担当として自然で親切に、3文以内で回答してください。絵文字は1〜2個まで。
+予約・登録の操作案内はしても実際の処理はしないでください。${extra}
+学生情報: 学校=${student.school_name ?? "未登録"}, 卒業年度=${student.grad_year ?? "未登録"}, 希望エリア=${student.pref_area ?? "未登録"}`;
+}
 
-async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
+async function handleOnboarding(
+  lineUserId: string,
+  text: string,
+  student: any,
+  push: (to: string, text: string, buttons?: string[]) => Promise<void>,
+  botMsg: Partial<BotMessages> = {}
+) {
   if (!student.school_name) {
-    // 質問っぽい入力はAIで回答してから学校名を再促す
-    if (isQuestion(text)) {
-      const systemPrompt = `あなたは美容サロンの採用担当スタッフです。学生からの質問に採用担当として3文以内で親切に回答してください。絵文字は1〜2個まで。`;
-      const aiReply = await askGemini(systemPrompt, text);
-      await push(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
-      return;
-    }
-
-    const pending: string[] = student.tags?.school_candidates ?? [];
-
-    // 候補から確定ボタンを押した場合（完全一致 or 「○○で登録」形式）
+    // 候補から確定ボタンが押された場合
     const confirmMatch = text.match(/^「(.+)」で登録$/);
     const confirmed = confirmMatch ? confirmMatch[1] : (isExactSchool(text) ? text : null);
-
     if (confirmed) {
       await supabaseAdmin.from("students")
         .update({ school_name: confirmed, tags: { ...student.tags, school_candidates: null } })
@@ -91,6 +92,20 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
       return;
     }
 
+    // Geminiで意図分類
+    const intent = await classifyIntent(text, "school_name");
+
+    if (intent === "question") {
+      const aiReply = await askGemini(staffSystemPrompt(student), text);
+      await push(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
+      return;
+    }
+    if (intent === "cancel") {
+      await push(lineUserId, "わかりました！いつでもメッセージをお送りください😊\n\n専門学校名から登録できます。");
+      return;
+    }
+
+    // input or correction → 学校名検索として処理
     const hits = searchSchools(text);
     if (hits.length > 0) {
       await supabaseAdmin.from("students")
@@ -110,35 +125,61 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
     }
     return;
   }
-  const isCorrection = (t: string) => /修正|訂正|間違|やり直|戻|変更/.test(t);
 
   if (!student.grad_year) {
-    // 学校名修正
-    if (isCorrection(text)) {
+    // 数字ならそのまま処理
+    const year = parseInt(text, 10);
+    if (!isNaN(year) && year >= 2020 && year <= 2035) {
+      await supabaseAdmin.from("students").update({ grad_year: year }).eq("line_user_id", lineUserId);
+      await push(lineUserId, "ありがとうございます！\n最後に、希望の勤務エリアを教えてください。\n（例: 東京都内、大阪など）");
+      return;
+    }
+
+    // Geminiで意図分類
+    const intent = await classifyIntent(text, "grad_year");
+
+    if (intent === "correction") {
       await supabaseAdmin.from("students")
         .update({ school_name: null, tags: { ...student.tags, school_candidates: null } })
         .eq("line_user_id", lineUserId);
       await push(lineUserId, "学校名の入力に戻ります。\n通っている専門学校名を入力してください。");
       return;
     }
-    const year = parseInt(text, 10);
-    if (isNaN(year) || year < 2020 || year > 2035) {
-      await push(lineUserId, "年度を数字で入力してください。\n（例: 2027）\n\n学校名を修正したい場合は「修正」と入力してください。");
+    if (intent === "question") {
+      const aiReply = await askGemini(staffSystemPrompt(student), text);
+      await push(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\n卒業予定年度を数字で入力してください。\n（例: 2027）");
       return;
     }
-    await supabaseAdmin.from("students").update({ grad_year: year }).eq("line_user_id", lineUserId);
-    await push(lineUserId, "ありがとうございます！\n最後に、希望の勤務エリアを教えてください。\n（例: 東京都内、大阪など）");
+    if (intent === "cancel") {
+      await push(lineUserId, "わかりました！\n続きは「2027」のように卒業予定年度を送ってください。");
+      return;
+    }
+    await push(lineUserId, "年度を数字で入力してください。\n（例: 2027）\n\n学校名を修正したい場合は「修正したい」と入力してください。");
     return;
   }
+
   if (!student.pref_area) {
-    // 学校名・卒業年度修正
-    if (isCorrection(text)) {
+    // Geminiで意図分類
+    const intent = await classifyIntent(text, "pref_area");
+
+    if (intent === "correction") {
       await supabaseAdmin.from("students")
         .update({ school_name: null, grad_year: null, tags: { ...student.tags, school_candidates: null } })
         .eq("line_user_id", lineUserId);
       await push(lineUserId, "学校名の入力に戻ります。\n通っている専門学校名を入力してください。");
       return;
     }
+    if (intent === "question") {
+      const aiReply = await askGemini(staffSystemPrompt(student), text);
+      await push(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\n希望の勤務エリアを教えてください。\n（例: 東京都内、大阪など）");
+      return;
+    }
+    if (intent === "cancel") {
+      await push(lineUserId, "わかりました！\n希望エリアを入力して登録を完了させましょう。\n（例: 東京都内、大阪など）");
+      return;
+    }
+
+    // input → エリアとして登録
     await supabaseAdmin.from("students").update({
       pref_area: text, status: "registered",
       registered_at: new Date().toISOString(),
@@ -148,9 +189,16 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
   }
 }
 
-async function handleBookingFlow(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
+async function handleBookingFlow(
+  lineUserId: string,
+  text: string,
+  student: any,
+  push: (to: string, text: string, buttons?: string[]) => Promise<void>,
+  botMsg: Partial<BotMessages> = {}
+) {
   const tags: any = student.tags ?? {};
 
+  // 予約開始キーワード（ボタン含む）
   if (["予約", "よやく", "予約したい", "予約する", "別の枠も予約する"].includes(text)) {
     const { data: slots } = await supabaseAdmin
       .from("reservation_slots")
@@ -165,57 +213,39 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
       return;
     }
 
-    const eventLabel: Record<string, string> = {
-      salon_visit: "サロン見学", briefing: "説明会", consultation: "個別相談",
-    };
-
+    const eventLabel: Record<string, string> = { salon_visit: "サロン見学", briefing: "説明会", consultation: "個別相談" };
     const slotLabels = available.map((s: any) => {
-      const dt = new Date(s.starts_at).toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
-        weekday: "short", hour: "2-digit", minute: "2-digit",
-      });
+      const dt = new Date(s.starts_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
       const store = (s.stores?.name ?? "").replace(/^AGU hair\s*/i, "");
       const ev = { salon_visit: "見学", briefing: "説明会", consultation: "相談" }[s.event_type as string] ?? s.event_type;
-      const remaining = s.capacity - s.booked_count;
-      // LINE制限20文字以内のラベル
-      return `${dt} ${store}｜${ev} 残${remaining}`;
+      return `${dt} ${store}｜${ev} 残${s.capacity - s.booked_count}`;
     });
-
-    const lines = available.map((s: any, i: number) => {
-      const dt = new Date(s.starts_at).toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
-        weekday: "short", hour: "2-digit", minute: "2-digit",
-      });
-      const store = s.stores?.name ?? "";
-      const remaining = s.capacity - s.booked_count;
-      return `${dt}\n   ${store}｜${eventLabel[s.event_type] ?? s.event_type}｜残${remaining}名`;
+    const lines = available.map((s: any) => {
+      const dt = new Date(s.starts_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+      return `${dt}\n   ${s.stores?.name ?? ""}｜${eventLabel[s.event_type] ?? s.event_type}｜残${s.capacity - s.booked_count}名`;
     });
 
     await supabaseAdmin.from("students")
       .update({ tags: { ...tags, pending_slots: available.map((s: any) => s.id), slot_labels: slotLabels } })
       .eq("line_user_id", lineUserId);
 
-    await push(
-      lineUserId,
-      `予約可能な枠は以下の通りです。\n\nボタンを押して選んでください。`,
-      slotLabels
-    );
+    await push(lineUserId, `予約可能な枠は以下の通りです。\n\nボタンを押して選んでください。\n\n${lines.join("\n\n")}`, slotLabels);
     return;
   }
 
+  // 枠ボタン選択 or 番号入力
   const pendingSlots: string[] = tags.pending_slots ?? [];
   const slotLabels: string[] = tags.slot_labels ?? [];
-  // ボタンラベルで照合（数字入力にも後方互換で対応）
   const labelIndex = slotLabels.indexOf(text);
   const numMatch = text.match(/^(\d+)/);
   const num = numMatch ? parseInt(numMatch[1], 10) : NaN;
   const slotIndex = labelIndex >= 0 ? labelIndex : (!isNaN(num) && num >= 1 && num <= pendingSlots.length ? num - 1 : -1);
+
   if (slotIndex >= 0) {
     const slotId = pendingSlots[slotIndex];
     const { error } = await supabaseAdmin.rpc("book_slot", { p_student: student.id, p_slot: slotId });
-
     await supabaseAdmin.from("students")
-      .update({ tags: { ...tags, pending_slots: [] } })
+      .update({ tags: { ...tags, pending_slots: [], slot_labels: [] } })
       .eq("line_user_id", lineUserId);
 
     if (error) {
@@ -226,63 +256,54 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
     }
 
     const { data: slot } = await supabaseAdmin
-      .from("reservation_slots")
-      .select("starts_at, stores(name)")
-      .eq("id", slotId).single();
-
+      .from("reservation_slots").select("starts_at, stores(name)").eq("id", slotId).single();
     if (slot) {
-      const dt = new Date(slot.starts_at).toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
-        weekday: "short", hour: "2-digit", minute: "2-digit",
-      });
-      const confirmedMsg = getMsg(botMsg, "booking_confirmed")
-        .replace("{date}", dt)
-        .replace("{store}", (slot.stores as any)?.name ?? "");
+      const dt = new Date(slot.starts_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+      const confirmedMsg = getMsg(botMsg, "booking_confirmed").replace("{date}", dt).replace("{store}", (slot.stores as any)?.name ?? "");
       await push(lineUserId, confirmedMsg, ["別の枠も予約する"]);
     }
     return;
   }
 
-  // 枠選択中に不明な入力 → ボタンを再提示
+  // 枠選択待ち中の不明な入力 → Geminiで意図分類
   if (pendingSlots.length > 0 && slotLabels.length > 0) {
-    if (/修正|戻|キャンセル|やめ|中止|しない|不要|結構|いらない/.test(text)) {
+    const intent = await classifyIntent(text, "booking");
+    if (intent === "cancel") {
       await supabaseAdmin.from("students")
         .update({ tags: { ...tags, pending_slots: [], slot_labels: [] } })
         .eq("line_user_id", lineUserId);
       await push(lineUserId, "わかりました！\n予約が必要になった際はいつでもご連絡ください。", ["予約する"]);
+    } else if (intent === "question") {
+      const aiReply = await askGemini(
+        staffSystemPrompt(student, "\n予約は「予約する」ボタンから案内してください。"),
+        text
+      );
+      await push(lineUserId, aiReply || "ご質問はスタッフにお問い合わせください。", slotLabels);
     } else {
       await push(lineUserId, "ボタンから枠を選んでください。", slotLabels);
     }
     return;
   }
 
-  // 登録情報の修正を希望
-  if (/修正|訂正|間違|やり直|変更|登録/.test(text)) {
+  // 登録済み後の自由入力 → Geminiで意図分類
+  const intent = await classifyIntent(text, "booking");
+
+  if (intent === "correction") {
     await supabaseAdmin.from("students")
       .update({ school_name: null, grad_year: null, pref_area: null, status: "friend", tags: { ...tags, school_candidates: null } })
       .eq("line_user_id", lineUserId);
-    await push(lineUserId, "登録情報をリセットしました。\n最初からやり直します。\n\n通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）");
+    await push(lineUserId, "登録情報をリセットしました。最初からやり直します。\n\n通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）");
+    return;
+  }
+  if (intent === "cancel") {
+    await push(lineUserId, "わかりました！\n予約が必要になった際はいつでもご連絡ください。", ["予約する"]);
     return;
   }
 
-  // 予約しない意思表示
-  if (/予約しない|不要|結構|いらない|大丈夫/.test(text)) {
-    await push(lineUserId, "わかりました！\n予約が必要になった際はいつでもご連絡ください。");
-    return;
-  }
-
-  // AIで自由回答
-  const systemPrompt = `あなたは美容サロンの採用担当スタッフとしてLINEで学生に対応しています。
-学生の質問に対して、採用担当として自然で親切に回答してください。
-回答は3文以内で簡潔に。絵文字は1〜2個まで。
-予約・登録に関する操作は案内するだけにして、実際の処理はしないでください。
-予約は「予約する」ボタンを押すよう案内してください。
-学生情報: 学校=${student.school_name ?? "未登録"}, 卒業年度=${student.grad_year ?? "未登録"}, 希望エリア=${student.pref_area ?? "未登録"}`;
-
-  const aiReply = await askGemini(systemPrompt, text);
-  if (aiReply) {
-    await push(lineUserId, aiReply, ["予約する"]);
-  } else {
-    await push(lineUserId, "見学・説明会の予約はボタンを押してください。", ["予約する"]);
-  }
+  // question or other → Geminiで回答
+  const aiReply = await askGemini(
+    staffSystemPrompt(student, "\n予約は「予約する」ボタンから案内してください。"),
+    text
+  );
+  await push(lineUserId, aiReply || "見学・説明会の予約はボタンを押してください。", ["予約する"]);
 }
