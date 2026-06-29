@@ -12,7 +12,11 @@ export async function POST(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "IDまたはパスワードが違います" }, { status: 401 });
   }
-  const res = NextResponse.json({ ok: true, role: session.role });
+  const res = NextResponse.json({
+    ok: true,
+    role: session.role,
+    company_name: session.role === "company" ? session.company_name : null,
+  });
   res.cookies.set("admin_session", setSessionCookie(session), {
     httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 7,
   });
