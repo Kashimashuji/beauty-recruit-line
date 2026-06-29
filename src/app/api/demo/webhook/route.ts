@@ -245,5 +245,20 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
     return;
   }
 
+  // 登録情報の修正を希望
+  if (/修正|訂正|間違|やり直|変更|登録/.test(text)) {
+    await supabaseAdmin.from("students")
+      .update({ school_name: null, grad_year: null, pref_area: null, status: "friend", tags: { ...tags, school_candidates: null } })
+      .eq("line_user_id", lineUserId);
+    await push(lineUserId, "登録情報をリセットしました。\n最初からやり直します。\n\n通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）");
+    return;
+  }
+
+  // 予約しない意思表示
+  if (/予約しない|不要|結構|いらない|大丈夫/.test(text)) {
+    await push(lineUserId, "わかりました！\n予約が必要になった際はいつでもご連絡ください。");
+    return;
+  }
+
   await push(lineUserId, "見学・説明会の予約はボタンを押してください。", ["予約する"]);
 }
