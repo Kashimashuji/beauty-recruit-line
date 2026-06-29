@@ -184,6 +184,13 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
       return;
     }
 
+    const looksLikeArea = /都|道|府|県|市|区|町|村|東京|大阪|名古屋|横浜|神奈川|埼玉|千葉|京都|兵庫|福岡|札幌|仙台|広島|関東|関西|九州|全国|どこでも/.test(text) || (text.length >= 2 && text.length <= 15);
+    if (!looksLikeArea) {
+      const aiReply = await askGemini(staffSystemPrompt(student), text);
+      await pushText(lineUserId, (aiReply || "ご返答ありがとうございます！") + "\n\n希望の勤務エリアを教えてください。\n（例: 東京都内、大阪など）");
+      return;
+    }
+
     await supabaseAdmin.from("students").update({
       pref_area: text, status: "registered",
       registered_at: new Date().toISOString(),
