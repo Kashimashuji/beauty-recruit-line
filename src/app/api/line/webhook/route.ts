@@ -95,7 +95,15 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
     }
   }
 
+  const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン/.test(t);
+
   if (!student.school_name) {
+    if (isQuestion(text)) {
+      const systemPrompt = `あなたは美容サロンの採用担当スタッフです。学生からの質問に採用担当として3文以内で親切に回答してください。絵文字は1〜2個まで。`;
+      const aiReply = await askGemini(systemPrompt, text);
+      await pushText(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
+      return;
+    }
     const confirmMatch = text.match(/^(\d+)$/) ? null : text;
     if (isExactSchool(text)) {
       await supabaseAdmin.from("students").update({ school_name: text, tags: { ...(student.tags ?? {}), school_candidates: null } }).eq("line_user_id", lineUserId);

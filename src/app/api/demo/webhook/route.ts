@@ -65,8 +65,18 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
   await handleBookingFlow(lineUserId, text, student, push, botMsg);
 }
 
+const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン/.test(t);
+
 async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
   if (!student.school_name) {
+    // 質問っぽい入力はAIで回答してから学校名を再促す
+    if (isQuestion(text)) {
+      const systemPrompt = `あなたは美容サロンの採用担当スタッフです。学生からの質問に採用担当として3文以内で親切に回答してください。絵文字は1〜2個まで。`;
+      const aiReply = await askGemini(systemPrompt, text);
+      await push(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
+      return;
+    }
+
     const pending: string[] = student.tags?.school_candidates ?? [];
 
     // 候補から確定ボタンを押した場合（完全一致 or 「○○で登録」形式）
