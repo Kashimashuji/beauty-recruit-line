@@ -56,16 +56,36 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
 
 async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
   if (!student.school_name) {
-    if (isExactSchool(text)) {
-      await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
-      await push(lineUserId, `「${text}」で登録しました！\n次に、卒業予定年度を教えてください。\n（例: 2027）`);
+    const pending: string[] = student.tags?.school_candidates ?? [];
+
+    // 候補から確定ボタンを押した場合（完全一致 or 「○○で登録」形式）
+    const confirmMatch = text.match(/^「(.+)」で登録$/);
+    const confirmed = confirmMatch ? confirmMatch[1] : (isExactSchool(text) ? text : null);
+
+    if (confirmed) {
+      await supabaseAdmin.from("students")
+        .update({ school_name: confirmed, tags: { ...student.tags, school_candidates: null } })
+        .eq("line_user_id", lineUserId);
+      await push(lineUserId, `「${confirmed}」で登録しました！\n次に、卒業予定年度を教えてください。\n（例: 2027）`);
+      return;
+    }
+
+    const hits = searchSchools(text);
+    if (hits.length > 0) {
+      await supabaseAdmin.from("students")
+        .update({ tags: { ...student.tags, school_candidates: hits } })
+        .eq("line_user_id", lineUserId);
+      await push(
+        lineUserId,
+        "以下から学校名を選んでください。\n一覧にない場合は「そのまま登録する」を押してください。",
+        [...hits, `「${text}」で登録`]
+      );
     } else {
-      const hits = searchSchools(text);
-      if (hits.length > 0) {
-        await push(lineUserId, "以下から学校名を選んでください。\n見つからない場合はキーワードを変えて再入力してください。", hits);
-      } else {
-        await push(lineUserId, "学校名が見つかりませんでした。\n別のキーワードで入力してみてください。\n（例:「山野」「東京ベル」など）");
-      }
+      await push(
+        lineUserId,
+        `「${text}」はリストにありませんでした。\nそのまま登録しますか？`,
+        [`「${text}」で登録`]
+      );
     }
     return;
   }
