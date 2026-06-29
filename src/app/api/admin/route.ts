@@ -176,6 +176,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, count: slot_ids.length });
   }
 
+  // --- 会社追加（スーパー管理者専用） ---
+  if (action === "add_company") {
+    const session2 = await getSession();
+    if (session2?.role !== "super") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    const { name, slug, password } = body;
+    if (!name?.trim() || !slug?.trim() || !password?.trim()) return NextResponse.json({ error: "全項目を入力してください" }, { status: 400 });
+    if (password.length < 6) return NextResponse.json({ error: "パスワードは6文字以上で設定してください" }, { status: 400 });
+    const { error } = await supabaseAdmin.from("companies").insert({ name: name.trim(), slug: slug.trim(), password: password.trim() });
+    if (error) return NextResponse.json({ error: error.code === "23505" ? "その会社コードはすでに使われています" : error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- 会社パスワードリセット（スーパー管理者専用） ---
+  if (action === "reset_company_password") {
+    const session2 = await getSession();
+    if (session2?.role !== "super") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    const { company_id, password } = body;
+    if (!company_id || !password?.trim()) return NextResponse.json({ error: "必須項目が不足しています" }, { status: 400 });
+    if (password.length < 6) return NextResponse.json({ error: "パスワードは6文字以上で設定してください" }, { status: 400 });
+    const { error } = await supabaseAdmin.from("companies").update({ password: password.trim() }).eq("id", company_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
   // --- 手動モード切替 ---
   if (action === "toggle_manual") {
     const { student_id, manual_mode } = body;

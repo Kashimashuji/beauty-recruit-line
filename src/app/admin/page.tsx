@@ -68,7 +68,7 @@ const statusLabel: Record<string, string> = {
 
 export default function AdminPage() {
   const [session, setSession] = useState<SessionInfo | null | "loading">("loading");
-  const [tab, setTab] = useState<"calendar" | "reservations" | "students" | "add_slot" | "slots" | "store_manage" | "settings">("calendar");
+  const [tab, setTab] = useState<"calendar" | "reservations" | "students" | "add_slot" | "slots" | "store_manage" | "company_manage" | "settings">("calendar");
   const [rows, setRows] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -110,9 +110,12 @@ export default function AdminPage() {
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  // スーパー管理者：会社絞り込み
+  // スーパー管理者：会社絞り込み・会社管理
   const [companies, setCompanies] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [filterCompanyId, setFilterCompanyId] = useState("");
+  const [newCompany, setNewCompany] = useState({ name: "", slug: "", password: "" });
+  const [resetTarget, setResetTarget] = useState<{ id: string; name: string } | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
 
   // 学生一覧フィルター
   const [studentFilter, setStudentFilter] = useState({ grad_year: "", status: "", keyword: "" });
@@ -403,14 +406,43 @@ export default function AdminPage() {
     } else showMsg(`❌ ${json.error}`);
   };
 
+  const isSuper = isLoggedIn && (session as SessionInfo).role === "super";
+
+  const addCompany = async () => {
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add_company", ...newCompany }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg("✅ 会社を追加しました");
+      setNewCompany({ name: "", slug: "", password: "" });
+      fetch("/api/admin?view=companies").then(r => r.json()).then(j => setCompanies(j.companies ?? []));
+    } else showMsg(`❌ ${json.error}`);
+  };
+
+  const resetCompanyPassword = async () => {
+    if (!resetTarget || !resetPassword.trim()) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset_company_password", company_id: resetTarget.id, password: resetPassword }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg(`✅ ${resetTarget.name} のパスワードをリセットしました`);
+      setResetTarget(null); setResetPassword("");
+    } else showMsg(`❌ ${json.error}`);
+  };
+
   const tabs = [
-    { key: "calendar",      label: "📅 カレンダー" },
-    { key: "reservations",  label: "予約一覧" },
-    { key: "students",      label: "学生一覧" },
-    { key: "slots",         label: "枠一覧" },
-    { key: "add_slot",      label: "＋ 予約枠追加" },
-    { key: "store_manage",  label: "店舗管理" },
-    { key: "settings",      label: "設定" },
+    { key: "calendar",        label: "📅 カレンダー",  superOnly: false },
+    { key: "reservations",    label: "予約一覧",        superOnly: false },
+    { key: "students",        label: "学生一覧",        superOnly: false },
+    { key: "slots",           label: "枠一覧",          superOnly: false },
+    { key: "add_slot",        label: "＋ 予約枠追加",   superOnly: false },
+    { key: "store_manage",    label: "店舗管理",        superOnly: false },
+    { key: "company_manage",  label: "🏢 会社管理",     superOnly: true  },
+    { key: "settings",        label: "設定",            superOnly: false },
   ] as const;
 
   return (
@@ -434,9 +466,9 @@ export default function AdminPage() {
 
       {/* タブ */}
       <div style={{ marginBottom: 16 }}>
-        {tabs.map(t => (
+        {tabs.filter(t => !t.superOnly || isSuper).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
-            padding: "8px 20px", marginRight: 8, border: "none", borderRadius: 6,
+            padding: "8px 20px", marginRight: 8, marginBottom: 6, border: "none", borderRadius: 6,
             cursor: "pointer", fontWeight: 700,
             background: tab === t.key ? "#06c755" : "#eee",
             color: tab === t.key ? "#fff" : "#333",
@@ -585,6 +617,69 @@ export default function AdminPage() {
           </div>
         );
       })()}
+
+      {/* 会社管理タブ（スーパー管理者専用） */}
+      {tab === "company_manage" && isSuper && (
+        <div>
+          {/* 新規会社追加フォーム */}
+          <div style={{ maxWidth: 480, marginBottom: 36, padding: 24, background: "#f5f5f5", borderRadius: 10 }}>
+            <h3 style={{ marginBottom: 16, fontSize: 15 }}>新しい会社を追加</h3>
+            <label style={lbl}>会社名
+              <input style={inp} value={newCompany.name} onChange={e => setNewCompany({ ...newCompany, name: e.target.value })} placeholder="例: ○○ヘアサロン" />
+            </label>
+            <label style={lbl}>会社コード（ログインID）
+              <input style={inp} value={newCompany.slug} onChange={e => setNewCompany({ ...newCompany, slug: e.target.value })} placeholder="例: salon123（英数字）" />
+            </label>
+            <label style={lbl}>初期パスワード（6文字以上）
+              <input style={inp} value={newCompany.password} onChange={e => setNewCompany({ ...newCompany, password: e.target.value })} placeholder="例: pass1234" />
+            </label>
+            {newCompany.slug && newCompany.password.length >= 6 && (
+              <div style={{ marginBottom: 12, padding: "10px 14px", background: "#e8f5e9", borderRadius: 8, fontSize: 13, color: "#06803c" }}>
+                ログインURL: <strong>https://beauty-recruit-line.vercel.app/admin/{newCompany.slug}</strong>
+              </div>
+            )}
+            <button style={addBtn} onClick={addCompany}>追加する</button>
+          </div>
+
+          {/* パスワードリセットパネル */}
+          {resetTarget && (
+            <div style={{ maxWidth: 480, marginBottom: 24, padding: 16, background: "#fff8e1", borderRadius: 10, border: "1px solid #ffc107" }}>
+              <div style={{ fontWeight: 700, marginBottom: 12 }}>「{resetTarget.name}」のパスワードをリセット</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input style={{ ...inp, marginTop: 0, flex: 1 }} value={resetPassword}
+                  onChange={e => setResetPassword(e.target.value)} placeholder="新しいパスワード（6文字以上）" />
+                <button style={{ ...addBtn, marginTop: 0, whiteSpace: "nowrap" }} onClick={resetCompanyPassword}>リセット</button>
+                <button onClick={() => { setResetTarget(null); setResetPassword(""); }}
+                  style={{ padding: "10px 14px", border: "1px solid #ccc", borderRadius: 8, background: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>キャンセル</button>
+              </div>
+            </div>
+          )}
+
+          {/* 会社一覧 */}
+          <h3 style={{ marginBottom: 12, fontSize: 15 }}>会社一覧</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
+                <th style={th}>会社名</th><th style={th}>会社コード</th><th style={th}>ログインURL</th><th style={th}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {companies.map(c => (
+                <tr key={c.id} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={td}>{c.name}</td>
+                  <td style={td}><code style={{ background: "#f5f5f5", padding: "2px 6px", borderRadius: 4 }}>{c.slug}</code></td>
+                  <td style={{ ...td, fontSize: 12, color: "#666" }}>/admin/{c.slug}</td>
+                  <td style={td}>
+                    <button onClick={() => { setResetTarget({ id: c.id, name: c.name }); setResetPassword(""); }}
+                      style={slotBtn("#fff8e1", "#f57c00")}>PW リセット</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {companies.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>登録された会社がありません。</p>}
+        </div>
+      )}
 
       {/* 設定タブ */}
       {tab === "settings" && (
