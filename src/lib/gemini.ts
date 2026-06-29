@@ -31,15 +31,18 @@ export async function classifyIntent(text: string, step: string): Promise<Intent
     pref_area: "希望勤務エリアを入力してもらうステップ",
     booking: "見学・説明会の予約枠を選んでもらうステップ",
   };
-  const prompt = `あなたはLINEチャットボットの意図分類AIです。
-現在のステップ: ${stepLabel[step] ?? step}
-ユーザーの発言: 「${text}」
+  const prompt = `You are a chatbot intent classifier. Classify the user message into exactly one of these four labels. Output only the label, nothing else.
 
-次の4つのうち、最も当てはまる1単語のみを出力してください。説明は不要です。
-- input : このステップで期待される入力（学校名・年度・エリア・枠番号など）
-- question : 質問・挨拶・雑談
-- cancel : キャンセル・やめる・不要・断る
-- correction : 前の入力を修正したい・やり直したい`;
+Labels:
+- input : The user is providing the expected information for this step (school name, graduation year, area, slot number, etc.)
+- question : The user is asking a question, greeting, or making small talk
+- cancel : The user wants to stop, cancel, or decline
+- correction : The user wants to go back and fix a previous answer
+
+Current step: ${stepLabel[step] ?? step}
+User message: 「${text}」
+
+Output one word only (input / question / cancel / correction):`;
 
   const raw = await callGemini({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -47,8 +50,8 @@ export async function classifyIntent(text: string, step: string): Promise<Intent
   });
 
   const word = raw.toLowerCase().trim();
-  if (word.startsWith("cancel")) return "cancel";
-  if (word.startsWith("correction")) return "correction";
-  if (word.startsWith("question")) return "question";
+  if (word.startsWith("cancel") || word.includes("キャンセル") || word.includes("やめ")) return "cancel";
+  if (word.startsWith("correction") || word.includes("修正") || word.includes("戻")) return "correction";
+  if (word.startsWith("question") || word.includes("質問") || word.includes("挨拶")) return "question";
   return "input";
 }
