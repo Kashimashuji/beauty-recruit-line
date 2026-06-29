@@ -570,6 +570,37 @@ export default function AdminPage() {
       {/* 枠一覧タブ（コピー機能付き） */}
       {tab === "slots" && (
         <>
+          {/* 予約率サマリー */}
+          {slots.length > 0 && (() => {
+            const now = new Date();
+            const upcoming = slots.filter(s => new Date(s.starts_at) >= now);
+            const past = slots.filter(s => new Date(s.starts_at) < now);
+            const totalCap = slots.reduce((a, s) => a + s.capacity, 0);
+            const totalBooked = slots.reduce((a, s) => a + (s.booked_count ?? 0), 0);
+            const upCap = upcoming.reduce((a, s) => a + s.capacity, 0);
+            const upBooked = upcoming.reduce((a, s) => a + (s.booked_count ?? 0), 0);
+            const rate = totalCap > 0 ? Math.round(totalBooked / totalCap * 100) : 0;
+            const upRate = upCap > 0 ? Math.round(upBooked / upCap * 100) : 0;
+            const rateColor = (r: number) => r >= 80 ? "#c62828" : r >= 50 ? "#f57c00" : "#06803c";
+            return (
+              <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                {[
+                  { label: "全体予約率", booked: totalBooked, cap: totalCap, rate, sub: `${slots.length}枠` },
+                  { label: "今後の予約率", booked: upBooked, cap: upCap, rate: upRate, sub: `${upcoming.length}枠` },
+                  { label: "終了済み", booked: past.reduce((a,s)=>a+(s.booked_count??0),0), cap: past.reduce((a,s)=>a+s.capacity,0), rate: past.reduce((a,s)=>a+s.capacity,0) > 0 ? Math.round(past.reduce((a,s)=>a+(s.booked_count??0),0)/past.reduce((a,s)=>a+s.capacity,0)*100) : 0, sub: `${past.length}枠` },
+                ].map(({ label, booked, cap, rate: r, sub }) => (
+                  <div key={label} style={{ padding: "14px 20px", background: "#fafafa", border: "1px solid #e0e0e0", borderRadius: 10, minWidth: 160 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{label} <span style={{ color: "#bbb" }}>({sub})</span></div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: rateColor(r) }}>{r}<span style={{ fontSize: 16 }}>%</span></div>
+                    <div style={{ marginTop: 6, height: 6, background: "#e0e0e0", borderRadius: 3 }}>
+                      <div style={{ width: `${r}%`, height: "100%", background: rateColor(r), borderRadius: 3, transition: "width 0.3s" }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>{booked} / {cap} 名</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
           {/* 編集パネル */}
           {editSlot && (
             <div style={{ marginBottom: 20, padding: 16, background: "#e3f2fd", borderRadius: 10, maxWidth: 520, border: "1px solid #90caf9" }}>
@@ -637,7 +668,7 @@ export default function AdminPage() {
                   />
                 </th>
                 <th style={th}>日時</th><th style={th}>店舗</th><th style={th}>種別</th>
-                <th style={th}>定員</th><th style={th}>予約数</th><th style={th} colSpan={3}>操作</th>
+                <th style={th}>定員</th><th style={th}>予約数</th><th style={th}>予約率</th><th style={th} colSpan={3}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -654,6 +685,18 @@ export default function AdminPage() {
                     <td style={td}>{eventLabel[s.event_type] ?? s.event_type}</td>
                     <td style={td}>{s.capacity}</td>
                     <td style={td}>{s.booked_count ?? 0}</td>
+                    <td style={td}>{(() => {
+                      const r = s.capacity > 0 ? Math.round((s.booked_count ?? 0) / s.capacity * 100) : 0;
+                      const c = r >= 80 ? "#c62828" : r >= 50 ? "#f57c00" : "#06803c";
+                      return (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ width: 48, height: 6, background: "#e0e0e0", borderRadius: 3 }}>
+                            <div style={{ width: `${r}%`, height: "100%", background: c, borderRadius: 3 }} />
+                          </div>
+                          <span style={{ fontSize: 12, color: c, fontWeight: 700 }}>{r}%</span>
+                        </div>
+                      );
+                    })()}</td>
                     <td style={td}>
                       <button onClick={() => openEdit(s)} style={slotBtn("#e3f2fd", "#1565c0")}>編集</button>
                     </td>
