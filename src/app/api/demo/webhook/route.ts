@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, replies, quickReplies });
 }
 
-async function handleMessage(lineUserId: string, text: string, push: (to: string, text: string) => Promise<void>) {
+async function handleMessage(lineUserId: string, text: string, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
   const { data: student } = await supabaseAdmin
     .from("students")
     .select("id, school_name, grad_year, pref_area, status, tags")
@@ -54,7 +54,7 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
   await handleBookingFlow(lineUserId, text, student, push);
 }
 
-async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string) => Promise<void>) {
+async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
   if (!student.school_name) {
     if (isExactSchool(text)) {
       await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
@@ -89,7 +89,7 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
   }
 }
 
-async function handleBookingFlow(lineUserId: string, text: string, student: any, push: (to: string, text: string) => Promise<void>) {
+async function handleBookingFlow(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
   const tags: any = student.tags ?? {};
 
   if (["予約", "よやく", "予約したい", "予約する", "別の枠も予約する"].includes(text)) {

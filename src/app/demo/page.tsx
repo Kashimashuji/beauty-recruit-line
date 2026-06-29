@@ -105,7 +105,7 @@ export default function DemoPage() {
           onKeyDown={e => e.key === "Enter" && send()}
           placeholder="メッセージを入力"
         />
-        <button style={sendBtn} onClick={send} disabled={loading}>送信</button>
+        <button style={sendBtn} onClick={() => send()} disabled={loading}>送信</button>
       </div>
     </div>
   );
