@@ -3,6 +3,7 @@ import { getProfile } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
 import { searchSchools, isExactSchool } from "@/lib/schools";
 import { normalizeText } from "@/lib/normalize";
+import { DEFAULT_BOT_MESSAGES, getMsg, type BotMessages } from "@/lib/botMessages";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,11 @@ export async function POST(req: NextRequest) {
     if (buttons) quickReplies.push(...buttons);
   };
 
+  // デモ用：最初の会社のBot設定を取得（なければデフォルト）
+  const { data: companyData } = await supabaseAdmin.from("companies").select("id, settings").limit(1).single();
+  const botMsg: Partial<BotMessages> = companyData?.settings ?? {};
+  const companyId: string | null = companyData?.id ?? null;
+
   for (const ev of events ?? []) {
     const lineUserId: string | undefined = ev.source?.userId;
     if (!lineUserId) continue;
@@ -26,16 +32,16 @@ export async function POST(req: NextRequest) {
         { line_user_id: lineUserId, display_name: "デモユーザー", status: "friend" },
         { onConflict: "line_user_id", ignoreDuplicates: true }
       );
-      await push(lineUserId, "友だち追加ありがとうございます！\n採用担当よりご連絡させていただきます。\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）");
+      await push(lineUserId, getMsg(botMsg, "welcome"));
     } else if (ev.type === "message" && ev.message?.type === "text") {
-      await handleMessage(lineUserId, normalizeText(ev.message.text), push);
+      await handleMessage(lineUserId, normalizeText(ev.message.text), push, botMsg);
     }
   }
 
   return NextResponse.json({ ok: true, replies, quickReplies });
 }
 
-async function handleMessage(lineUserId: string, text: string, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
+async function handleMessage(lineUserId: string, text: string, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
   const { data: student } = await supabaseAdmin
     .from("students")
     .select("id, school_name, grad_year, pref_area, status, tags")
@@ -51,14 +57,14 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
   if (student.tags?.manual_mode) return;
 
   if (student.status === "friend") {
-    await handleOnboarding(lineUserId, text, student, push);
+    await handleOnboarding(lineUserId, text, student, push, botMsg);
     return;
   }
 
-  await handleBookingFlow(lineUserId, text, student, push);
+  await handleBookingFlow(lineUserId, text, student, push, botMsg);
 }
 
-async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
+async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
   if (!student.school_name) {
     const pending: string[] = student.tags?.school_candidates ?? [];
 
@@ -126,12 +132,12 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
       pref_area: text, status: "registered",
       registered_at: new Date().toISOString(),
     }).eq("line_user_id", lineUserId);
-    await push(lineUserId, "登録完了です！ありがとうございました🎉\n\n見学・説明会の予約をご希望の方はボタンを押してください。", ["予約する"]);
+    await push(lineUserId, getMsg(botMsg, "registered"), ["予約する"]);
     return;
   }
 }
 
-async function handleBookingFlow(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>) {
+async function handleBookingFlow(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
   const tags: any = student.tags ?? {};
 
   if (["予約", "よやく", "予約したい", "予約する", "別の枠も予約する"].includes(text)) {
@@ -218,7 +224,10 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
         timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
         weekday: "short", hour: "2-digit", minute: "2-digit",
       });
-      await push(lineUserId, `ご予約ありがとうございます！\n\n📅 ${dt}\n📍 ${(slot.stores as any)?.name ?? ""}\n\n当日お会いできるのを楽しみにしています。`, ["別の枠も予約する"]);
+      const confirmedMsg = getMsg(botMsg, "booking_confirmed")
+        .replace("{date}", dt)
+        .replace("{store}", (slot.stores as any)?.name ?? "");
+      await push(lineUserId, confirmedMsg, ["別の枠も予約する"]);
     }
     return;
   }

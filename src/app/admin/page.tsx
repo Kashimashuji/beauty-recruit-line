@@ -117,6 +117,15 @@ export default function AdminPage() {
   const [resetTarget, setResetTarget] = useState<{ id: string; name: string } | null>(null);
   const [resetPassword, setResetPassword] = useState("");
 
+  // Botメッセージ設定
+  const DEFAULT_MSGS = {
+    welcome: "友だち追加ありがとうございます！\n採用担当よりご連絡させていただきます。\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）",
+    registered: "登録完了です！ありがとうございました🎉\n\n見学・説明会の予約をご希望の方はボタンを押してください。",
+    booking_confirmed: "ご予約ありがとうございます！\n\n📅 {date}\n📍 {store}\n\n当日お会いできるのを楽しみにしています。",
+  };
+  const [botMsgs, setBotMsgs] = useState({ ...DEFAULT_MSGS });
+  const [botMsgStatus, setBotMsgStatus] = useState("");
+
   // 学生一覧フィルター
   const [studentFilter, setStudentFilter] = useState({ grad_year: "", status: "", keyword: "" });
 
@@ -141,6 +150,13 @@ export default function AdminPage() {
   useEffect(() => {
     if (isLoggedIn && session && (session as any).role === "super") {
       fetch("/api/admin?view=companies").then(r => r.json()).then(j => setCompanies(j.companies ?? []));
+    }
+    if (isLoggedIn && session && (session as SessionInfo).role === "company") {
+      fetch("/api/admin?view=bot_settings").then(r => r.json()).then(j => {
+        if (j.settings && Object.keys(j.settings).length > 0) {
+          setBotMsgs({ ...DEFAULT_MSGS, ...j.settings });
+        }
+      });
     }
   }, [isLoggedIn]);
 
@@ -683,7 +699,46 @@ export default function AdminPage() {
 
       {/* 設定タブ */}
       {tab === "settings" && (
-        <div style={{ maxWidth: 400 }}>
+        <div style={{ maxWidth: 560 }}>
+          {/* Botメッセージ設定（クライアントのみ） */}
+          {!isSuper && (
+            <div style={{ marginBottom: 40 }}>
+              <h2 style={{ marginBottom: 6, fontSize: 16 }}>Botメッセージ設定</h2>
+              <p style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>LINE接続後に送信される自動メッセージをカスタマイズできます。</p>
+              {botMsgStatus && <p style={{ color: botMsgStatus.startsWith("❌") ? "#c0392b" : "#06803c", marginBottom: 12 }}>{botMsgStatus}</p>}
+
+              {([
+                { key: "welcome", label: "友だち追加時のメッセージ" },
+                { key: "registered", label: "登録完了メッセージ" },
+                { key: "booking_confirmed", label: "予約確定メッセージ", hint: "｛date｝→日時、｛store｝→店舗名に自動変換されます" },
+              ] as { key: "welcome" | "registered" | "booking_confirmed"; label: string; hint?: string }[]).map(({ key, label, hint }) => (
+                <label key={key} style={{ ...lbl, marginBottom: 20 }}>{label}
+                  {hint && <span style={{ fontSize: 12, color: "#888", marginLeft: 8 }}>{hint}</span>}
+                  <textarea
+                    value={botMsgs[key]}
+                    onChange={e => setBotMsgs(m => ({ ...m, [key]: e.target.value }))}
+                    style={{ ...inp, height: 100, resize: "vertical", fontFamily: "Meiryo, sans-serif", fontSize: 14 }}
+                  />
+                  <button onClick={() => setBotMsgs(m => ({ ...m, [key]: DEFAULT_MSGS[key] }))}
+                    style={{ marginTop: 4, fontSize: 12, color: "#888", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                    デフォルトに戻す
+                  </button>
+                </label>
+              ))}
+
+              <button style={addBtn} onClick={async () => {
+                setBotMsgStatus("");
+                const res = await fetch("/api/admin", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "update_bot_settings", settings: botMsgs }),
+                });
+                const json = await res.json();
+                setBotMsgStatus(res.ok ? "✅ 保存しました" : `❌ ${json.error}`);
+                setTimeout(() => setBotMsgStatus(""), 4000);
+              }}>保存する</button>
+            </div>
+          )}
+
           <h2 style={{ marginBottom: 20, fontSize: 16 }}>パスワード変更</h2>
           {pwMsg && <p style={{ color: pwMsg.startsWith("❌") ? "#c0392b" : "#06803c", marginBottom: 12 }}>{pwMsg}</p>}
           <label style={lbl}>現在のパスワード

@@ -24,6 +24,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ companies: data });
   }
 
+  if (view === "bot_settings") {
+    if (!companyId) return NextResponse.json({ error: "company_id required" }, { status: 400 });
+    const { data, error } = await supabaseAdmin.from("companies").select("settings").eq("id", companyId).single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ settings: data?.settings ?? {} });
+  }
+
   if (view === "stores") {
     let query = supabaseAdmin.from("stores").select("id, name, salon_id, company_id").order("name");
     if (companyId) query = query.eq("company_id", companyId);
@@ -208,6 +215,19 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin.from("students")
       .update({ tags: { ...(student?.tags ?? {}), manual_mode: !!manual_mode } })
       .eq("id", student_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- Botメッセージ設定保存 ---
+  if (action === "update_bot_settings") {
+    const session2 = await getSession();
+    if (!session2 || session2.role === "super") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    const { settings } = body;
+    if (!settings) return NextResponse.json({ error: "missing settings" }, { status: 400 });
+    const { error } = await supabaseAdmin.from("companies")
+      .update({ settings })
+      .eq("id", session2.company_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }
