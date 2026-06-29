@@ -22,6 +22,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ stores: data });
   }
 
+  if (view === "stores_manage") {
+    let query = supabaseAdmin.from("stores").select("id, name, address, is_active, company_id").order("name");
+    if (companyId) query = query.eq("company_id", companyId);
+    const { data, error } = await query;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ stores: data });
+  }
+
   if (view === "slots") {
     let query = supabaseAdmin
       .from("reservation_slots")
@@ -166,6 +174,27 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin.from("students")
       .update({ tags: { ...(student?.tags ?? {}), manual_mode: !!manual_mode } })
       .eq("id", student_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- 店舗追加 ---
+  if (action === "add_store") {
+    const { name, address } = body;
+    if (!name?.trim()) return NextResponse.json({ error: "店舗名を入力してください" }, { status: 400 });
+    const session2 = await getSession();
+    if (!session2) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const cid = session2.role === "super" ? (body.company_id ?? null) : session2.company_id;
+    const { error } = await supabaseAdmin.from("stores").insert({ name: name.trim(), address: address?.trim() ?? null, company_id: cid, is_active: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- 店舗閉店/再開 ---
+  if (action === "toggle_store_active") {
+    const { store_id, is_active } = body;
+    if (!store_id) return NextResponse.json({ error: "missing store_id" }, { status: 400 });
+    const { error } = await supabaseAdmin.from("stores").update({ is_active: !!is_active }).eq("id", store_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }

@@ -45,7 +45,7 @@ function LoginScreen({ onLogin }: { onLogin: (s: SessionInfo) => void }) {
   );
 }
 
-type Store = { id: string; name: string };
+type Store = { id: string; name: string; address?: string | null; is_active?: boolean };
 type Slot = { id: string; store_id: string; event_type: string; starts_at: string; capacity: number; booked_count: number; stores?: { name: string } };
 type Student = { id: string; full_name: string | null; display_name: string | null; school_name: string | null; grad_year: number | null; pref_area: string | null; entry_source: string | null; status: string; tags: any; line_user_id: string | null };
 
@@ -68,12 +68,14 @@ const statusLabel: Record<string, string> = {
 
 export default function AdminPage() {
   const [session, setSession] = useState<SessionInfo | null | "loading">("loading");
-  const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots" | "settings">("reservations");
+  const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots" | "store_manage" | "settings">("reservations");
   const [rows, setRows] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [msg, setMsg] = useState("");
   const [manualTarget, setManualTarget] = useState<Student | null>(null);
+  const [managedStores, setManagedStores] = useState<Store[]>([]);
+  const [newStore, setNewStore] = useState({ name: "", address: "" });
   const [manualMsg, setManualMsg] = useState("");
 
   // 単体フォーム
@@ -121,6 +123,10 @@ export default function AdminPage() {
     if (tab === "add_slot") return;
     if (tab === "slots") {
       fetch("/api/admin?view=slots").then(r => r.json()).then(j => setSlots(j.slots ?? []));
+      return;
+    }
+    if (tab === "store_manage") {
+      fetch("/api/admin?view=stores_manage").then(r => r.json()).then(j => setManagedStores(j.stores ?? []));
       return;
     }
     (async () => {
@@ -286,12 +292,43 @@ export default function AdminPage() {
   const toggleWeekday = (d: number) =>
     setBulkForm(f => ({ ...f, weekdays: f.weekdays.includes(d) ? f.weekdays.filter(x => x !== d) : [...f.weekdays, d] }));
 
+  const addStore = async () => {
+    if (!newStore.name.trim()) { showMsg("❌ 店舗名を入力してください"); return; }
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add_store", name: newStore.name, address: newStore.address }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg("✅ 店舗を追加しました");
+      setNewStore({ name: "", address: "" });
+      fetch("/api/admin?view=stores_manage").then(r => r.json()).then(j => setManagedStores(j.stores ?? []));
+      fetch("/api/admin?view=stores").then(r => r.json()).then(j => setStores(j.stores ?? []));
+    } else showMsg(`❌ ${json.error}`);
+  };
+
+  const toggleStoreActive = async (store: Store) => {
+    const next = !store.is_active;
+    if (!next && !confirm(`「${store.name}」を閉店にしますか？\n予約データは保持されます。`)) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle_store_active", store_id: store.id, is_active: next }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg(next ? `「${store.name}」を再開しました` : `「${store.name}」を閉店にしました`);
+      setManagedStores(prev => prev.map(s => s.id === store.id ? { ...s, is_active: next } : s));
+      fetch("/api/admin?view=stores").then(r => r.json()).then(j => setStores(j.stores ?? []));
+    } else showMsg(`❌ ${json.error}`);
+  };
+
   const tabs = [
-    { key: "reservations", label: "予約一覧" },
-    { key: "students",     label: "学生一覧" },
-    { key: "slots",        label: "枠一覧" },
-    { key: "add_slot",     label: "＋ 予約枠追加" },
-    { key: "settings",     label: "設定" },
+    { key: "reservations",  label: "予約一覧" },
+    { key: "students",      label: "学生一覧" },
+    { key: "slots",         label: "枠一覧" },
+    { key: "add_slot",      label: "＋ 予約枠追加" },
+    { key: "store_manage",  label: "店舗管理" },
+    { key: "settings",      label: "設定" },
   ] as const;
 
   return (
@@ -337,6 +374,53 @@ export default function AdminPage() {
               onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} />
           </label>
           <button style={addBtn} onClick={changePassword}>変更する</button>
+        </div>
+      )}
+
+      {/* 店舗管理タブ */}
+      {tab === "store_manage" && (
+        <div>
+          <div style={{ maxWidth: 480, marginBottom: 32, padding: 20, background: "#f5f5f5", borderRadius: 10 }}>
+            <h3 style={{ marginBottom: 16, fontSize: 15 }}>店舗を追加</h3>
+            <label style={lbl}>店舗名
+              <input style={inp} value={newStore.name} onChange={e => setNewStore({ ...newStore, name: e.target.value })} placeholder="例: AGU hair 渋谷店" />
+            </label>
+            <label style={lbl}>住所（任意）
+              <input style={inp} value={newStore.address} onChange={e => setNewStore({ ...newStore, address: e.target.value })} placeholder="例: 東京都渋谷区..." />
+            </label>
+            <button style={addBtn} onClick={addStore}>追加する</button>
+          </div>
+
+          <h3 style={{ marginBottom: 12, fontSize: 15 }}>店舗一覧</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
+                <th style={th}>店舗名</th><th style={th}>住所</th><th style={th}>状態</th><th style={th}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {managedStores.map(s => (
+                <tr key={s.id} style={{ borderBottom: "1px solid #eee", opacity: s.is_active === false ? 0.5 : 1 }}>
+                  <td style={td}>{s.name}</td>
+                  <td style={td}>{s.address ?? "-"}</td>
+                  <td style={td}>
+                    <span style={{ padding: "2px 10px", borderRadius: 12, fontSize: 12, fontWeight: 700,
+                      background: s.is_active !== false ? "#e8f5e9" : "#fce4ec",
+                      color: s.is_active !== false ? "#06803c" : "#c62828" }}>
+                      {s.is_active !== false ? "営業中" : "閉店"}
+                    </span>
+                  </td>
+                  <td style={td}>
+                    <button
+                      onClick={() => toggleStoreActive(s)}
+                      style={slotBtn(s.is_active !== false ? "#ffebee" : "#e8f5e9", s.is_active !== false ? "#c62828" : "#06803c")}
+                    >{s.is_active !== false ? "閉店にする" : "再開する"}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {managedStores.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>データがありません。</p>}
         </div>
       )}
 
