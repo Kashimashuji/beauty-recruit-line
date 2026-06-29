@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
         { line_user_id: lineUserId, display_name: "デモユーザー", status: "friend" },
         { onConflict: "line_user_id", ignoreDuplicates: true }
       );
-      await push(lineUserId, "デモユーザーさん、友だち追加ありがとうございます！\n美容業界への就職に向けてサポートします。\n\nまず、通っている専門学校名を教えてください。");
+      await push(lineUserId, "友だち追加ありがとうございます！\n採用担当よりご連絡させていただきます。\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）");
     } else if (ev.type === "message" && ev.message?.type === "text") {
       await handleMessage(lineUserId, normalizeText(ev.message.text), push);
     }
@@ -81,13 +81,13 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
         .eq("line_user_id", lineUserId);
       await push(
         lineUserId,
-        "以下から学校名を選んでください。\n一覧にない場合は「そのまま登録する」を押してください。",
+        "以下の候補から選んでください。\n一覧にない場合は「そのまま登録」を押してください。",
         [...hits, `「${text}」で登録`]
       );
     } else {
       await push(
         lineUserId,
-        `「${text}」はリストにありませんでした。\nそのまま登録しますか？`,
+        `「${text}」に一致する学校が見つかりませんでした。\n別のキーワードで再入力するか、そのまま登録できます。`,
         [`「${text}」で登録`]
       );
     }

@@ -42,7 +42,7 @@ async function handleFollow(lineUserId: string) {
   );
   await pushText(
     lineUserId,
-    `${profile.displayName}さん、友だち追加ありがとうございます！\n美容業界への就職に向けてサポートします。\n\nまず、通っている専門学校名を教えてください。`
+    `${profile.displayName}さん、友だち追加ありがとうございます！\n採用担当よりご連絡させていただきます。\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字を入力するだけで候補が表示されます）`
   );
 }
 
@@ -107,7 +107,7 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
       await pushText(lineUserId, `以下から学校名を選んでください。\n\n${hits.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n番号を送ってください。\n一覧にない場合は「0」を送ると入力した名前でそのまま登録します。`);
     } else {
       await supabaseAdmin.from("students").update({ tags: { ...(student.tags ?? {}), school_candidates: [], school_query: text } }).eq("line_user_id", lineUserId);
-      await pushText(lineUserId, `「${text}」はリストにありませんでした。\nそのまま登録する場合は「0」を送ってください。\n別のキーワードで再入力することもできます。`);
+      await pushText(lineUserId, `「${text}」に一致する学校が見つかりませんでした。\n別のキーワードで再入力するか、そのまま登録できます。`);
     }
     return;
   }
