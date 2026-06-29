@@ -2,6 +2,49 @@
 
 import { useEffect, useState } from "react";
 
+type SessionInfo = { role: "super" } | { role: "company"; company_name: string };
+
+function LoginScreen({ onLogin }: { onLogin: (s: SessionInfo) => void }) {
+  const [slug, setSlug] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const login = async () => {
+    if (!slug || !password) return;
+    setLoading(true); setError("");
+    const res = await fetch("/api/admin/auth", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, password }),
+    });
+    const json = await res.json();
+    setLoading(false);
+    if (res.ok) {
+      onLogin(json.role === "super" ? { role: "super" } : { role: "company", company_name: json.company_name ?? slug });
+    } else {
+      setError(json.error ?? "ログインに失敗しました");
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 360, margin: "80px auto", padding: 32, border: "1px solid #e5e5e5", borderRadius: 12, fontFamily: "Meiryo, sans-serif" }}>
+      <h2 style={{ marginBottom: 24, textAlign: "center" }}>管理画面ログイン</h2>
+      {error && <p style={{ color: "#c0392b", marginBottom: 12, fontSize: 14 }}>{error}</p>}
+      <label style={lbl}>会社ID（スラッグ）
+        <input style={inp} value={slug} onChange={e => setSlug(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && login()} placeholder="例: agu" />
+      </label>
+      <label style={lbl}>パスワード
+        <input type="password" style={inp} value={password} onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && login()} placeholder="パスワード" />
+      </label>
+      <button onClick={login} disabled={loading} style={{ ...addBtn, width: "100%", marginTop: 8 }}>
+        {loading ? "確認中..." : "ログイン"}
+      </button>
+    </div>
+  );
+}
+
 type Store = { id: string; name: string };
 type Slot = { id: string; store_id: string; event_type: string; starts_at: string; capacity: number; booked_count: number; stores?: { name: string } };
 type Student = { id: string; full_name: string | null; display_name: string | null; school_name: string | null; grad_year: number | null; pref_area: string | null; entry_source: string | null; status: string; tags: any; line_user_id: string | null };
@@ -24,6 +67,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export default function AdminPage() {
+  const [session, setSession] = useState<SessionInfo | null | "loading">("loading");
   const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots">("reservations");
   const [rows, setRows] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -58,8 +102,22 @@ export default function AdminPage() {
   const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
   useEffect(() => {
-    fetch("/api/admin?view=stores").then(r => r.json()).then(j => setStores(j.stores ?? []));
+    // セッション確認（401なら未ログイン）
+    fetch("/api/admin?view=stores").then(r => {
+      if (r.status === 401) { setSession(null); return { stores: [] }; }
+      setSession(prev => prev === "loading" ? { role: "company", company_name: "" } : prev);
+      return r.json();
+    }).then(j => setStores(j.stores ?? []));
   }, []);
+
+  const logout = async () => {
+    await fetch("/api/admin/auth", { method: "DELETE" });
+    setSession(null);
+    setRows([]); setSlots([]);
+  };
+
+  if (session === "loading") return <div style={{ padding: 40, fontFamily: "Meiryo, sans-serif" }}>読み込み中...</div>;
+  if (session === null) return <LoginScreen onLogin={s => { setSession(s); location.reload(); }} />;
 
   useEffect(() => {
     if (tab === "add_slot") return;
@@ -216,7 +274,13 @@ export default function AdminPage() {
 
   return (
     <main style={{ padding: 32, fontFamily: "Meiryo, sans-serif" }}>
-      <h1 style={{ marginBottom: 20 }}>採用管理ダッシュボード</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1>採用管理ダッシュボード
+          {session && session.role === "super" && <span style={{ fontSize: 13, color: "#06c755", marginLeft: 10, fontWeight: 400 }}>スーパー管理者</span>}
+          {session && session.role === "company" && <span style={{ fontSize: 13, color: "#666", marginLeft: 10, fontWeight: 400 }}>{session.company_name}</span>}
+        </h1>
+        <button onClick={logout} style={{ padding: "6px 16px", border: "1px solid #ccc", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13 }}>ログアウト</button>
+      </div>
 
       {/* タブ */}
       <div style={{ marginBottom: 16 }}>

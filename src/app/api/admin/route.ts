@@ -1,57 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { pushText } from "@/lib/line";
+import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // 管理画面用：予約一覧（カレンダー/リスト表示のデータ源）
 export async function GET(req: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const view = req.nextUrl.searchParams.get("view") ?? "reservations";
+  const isSuper = session.role === "super";
+  const companyId = isSuper ? null : session.company_id;
 
   if (view === "stores") {
-    const { data, error } = await supabaseAdmin
-      .from("stores")
-      .select("id, name, salon_id")
-      .order("name");
+    let query = supabaseAdmin.from("stores").select("id, name, salon_id, company_id").order("name");
+    if (companyId) query = query.eq("company_id", companyId);
+    const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ stores: data });
   }
 
   if (view === "slots") {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("reservation_slots")
-      .select("id, store_id, event_type, starts_at, capacity, booked_count, stores(name)")
+      .select("id, store_id, event_type, starts_at, capacity, booked_count, stores(name, company_id)")
       .order("starts_at", { ascending: false });
+    const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ slots: data });
+    const slots = companyId
+      ? (data ?? []).filter((s: any) => s.stores?.company_id === companyId)
+      : data;
+    return NextResponse.json({ slots });
   }
 
   if (view === "students") {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("students")
-      .select("id, full_name, display_name, school_name, grad_year, pref_area, entry_source, status, tags, line_user_id, created_at, reservations(created_at)")
+      .select("id, full_name, display_name, school_name, grad_year, pref_area, entry_source, status, tags, line_user_id, created_at, reservations(created_at, reservation_slots(store_id, stores(company_id)))")
       .order("created_at", { ascending: false });
+    const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    // 最新の予約日時を booked_at として付与
-    const students = (data ?? []).map((s: any) => {
-      const dates = (s.reservations ?? []).map((r: any) => r.created_at).sort();
-      return { ...s, booked_at: dates[dates.length - 1] ?? null };
-    });
+    const students = (data ?? [])
+      .filter((s: any) => {
+        if (!companyId) return true;
+        // 予約がある学生はその店舗のcompany_idで判定、なければ全社表示
+        const booked = (s.reservations ?? []).some((r: any) => r.reservation_slots?.stores?.company_id === companyId);
+        return booked || (s.reservations ?? []).length === 0;
+      })
+      .map((s: any) => {
+        const dates = (s.reservations ?? []).map((r: any) => r.created_at).sort();
+        return { ...s, booked_at: dates[dates.length - 1] ?? null };
+      });
     return NextResponse.json({ students });
   }
 
-  const { data, error } = await supabaseAdmin
+  let resQuery = supabaseAdmin
     .from("reservations")
-    .select(
-      "id, status, created_at, students(full_name, school_name), reservation_slots(starts_at, stores(name))"
-    )
+    .select("id, status, created_at, students(full_name, school_name), reservation_slots(starts_at, stores(name, company_id))")
     .order("created_at", { ascending: false });
+  const { data, error } = await resQuery;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ reservations: data });
+  const reservations = companyId
+    ? (data ?? []).filter((r: any) => r.reservation_slots?.stores?.company_id === companyId)
+    : data;
+  return NextResponse.json({ reservations });
 }
 
 // 予約枠の追加 / 一括作成 / コピー
 export async function POST(req: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const body = await req.json();
   const action = body.action ?? "single";
 
