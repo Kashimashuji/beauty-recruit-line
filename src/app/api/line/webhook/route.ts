@@ -243,6 +243,28 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any)
     return;
   }
 
+  // 枠選択中に不明な入力 → 枠リストを再提示
+  if (pendingSlots.length > 0) {
+    if (/修正|戻|キャンセル/.test(text)) {
+      await supabaseAdmin.from("students")
+        .update({ tags: { ...tags, pending_slots: [] } })
+        .eq("line_user_id", lineUserId);
+      await pushText(lineUserId, "予約をキャンセルしました。\n改めて予約する場合は「予約」と送ってください。");
+    } else {
+      const { data: slots } = await supabaseAdmin
+        .from("reservation_slots")
+        .select("id, starts_at, capacity, booked_count, event_type, stores(name)")
+        .in("id", pendingSlots);
+      const eventLabel: Record<string, string> = { salon_visit: "サロン見学", briefing: "説明会", consultation: "個別相談" };
+      const lines = (slots ?? []).map((s: any, i: number) => {
+        const dt = new Date(s.starts_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+        return `${i + 1}. ${dt}\n   ${s.stores?.name ?? ""}｜${eventLabel[s.event_type] ?? s.event_type}｜残${s.capacity - s.booked_count}名`;
+      });
+      await pushText(lineUserId, `番号を送って枠を選んでください。\n\n${lines.join("\n\n")}`);
+    }
+    return;
+  }
+
   // その他のメッセージ
   await pushText(
     lineUserId,

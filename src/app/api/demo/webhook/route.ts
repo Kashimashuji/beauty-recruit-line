@@ -232,5 +232,18 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
     return;
   }
 
+  // 枠選択中に不明な入力 → ボタンを再提示
+  if (pendingSlots.length > 0 && slotLabels.length > 0) {
+    if (/修正|戻|キャンセル/.test(text)) {
+      await supabaseAdmin.from("students")
+        .update({ tags: { ...tags, pending_slots: [], slot_labels: [] } })
+        .eq("line_user_id", lineUserId);
+      await push(lineUserId, "予約をキャンセルしました。\n改めて予約する場合はボタンを押してください。", ["予約する"]);
+    } else {
+      await push(lineUserId, "ボタンから枠を選んでください。", slotLabels);
+    }
+    return;
+  }
+
   await push(lineUserId, "見学・説明会の予約はボタンを押してください。", ["予約する"]);
 }
