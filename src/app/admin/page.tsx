@@ -76,6 +76,8 @@ export default function AdminPage() {
   const [manualTarget, setManualTarget] = useState<Student | null>(null);
   const [managedStores, setManagedStores] = useState<Store[]>([]);
   const [newStore, setNewStore] = useState({ name: "", address: "" });
+  const [bulkStoreText, setBulkStoreText] = useState("");
+  const [storeAddMode, setStoreAddMode] = useState<"single" | "bulk">("single");
   const [manualMsg, setManualMsg] = useState("");
 
   // 単体フォーム
@@ -307,6 +309,26 @@ export default function AdminPage() {
     } else showMsg(`❌ ${json.error}`);
   };
 
+  const bulkAddStores = async () => {
+    const lines = bulkStoreText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) { showMsg("❌ 店舗データを入力してください"); return; }
+    const rows = lines.map(line => {
+      const [name, ...rest] = line.split(",");
+      return { name: name.trim(), address: rest.join(",").trim() || undefined };
+    }).filter(r => r.name);
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "bulk_add_stores", rows }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg(`✅ ${json.count}件の店舗を追加しました`);
+      setBulkStoreText("");
+      fetch("/api/admin?view=stores_manage").then(r => r.json()).then(j => setManagedStores(j.stores ?? []));
+      fetch("/api/admin?view=stores").then(r => r.json()).then(j => setStores(j.stores ?? []));
+    } else showMsg(`❌ ${json.error}`);
+  };
+
   const toggleStoreActive = async (store: Store) => {
     const next = !store.is_active;
     if (!next && !confirm(`「${store.name}」を閉店にしますか？\n予約データは保持されます。`)) return;
@@ -380,15 +402,45 @@ export default function AdminPage() {
       {/* 店舗管理タブ */}
       {tab === "store_manage" && (
         <div>
-          <div style={{ maxWidth: 480, marginBottom: 32, padding: 20, background: "#f5f5f5", borderRadius: 10 }}>
-            <h3 style={{ marginBottom: 16, fontSize: 15 }}>店舗を追加</h3>
-            <label style={lbl}>店舗名
-              <input style={inp} value={newStore.name} onChange={e => setNewStore({ ...newStore, name: e.target.value })} placeholder="例: AGU hair 渋谷店" />
-            </label>
-            <label style={lbl}>住所（任意）
-              <input style={inp} value={newStore.address} onChange={e => setNewStore({ ...newStore, address: e.target.value })} placeholder="例: 東京都渋谷区..." />
-            </label>
-            <button style={addBtn} onClick={addStore}>追加する</button>
+          <div style={{ maxWidth: 520, marginBottom: 32, padding: 20, background: "#f5f5f5", borderRadius: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              {(["single", "bulk"] as const).map(m => (
+                <button key={m} onClick={() => setStoreAddMode(m)} style={{
+                  padding: "8px 20px", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700,
+                  background: storeAddMode === m ? "#333" : "#ddd", color: storeAddMode === m ? "#fff" : "#333",
+                }}>{m === "single" ? "1件追加" : "一括インポート"}</button>
+              ))}
+            </div>
+
+            {storeAddMode === "single" && (
+              <>
+                <label style={lbl}>店舗名
+                  <input style={inp} value={newStore.name} onChange={e => setNewStore({ ...newStore, name: e.target.value })} placeholder="例: AGU hair 渋谷店" />
+                </label>
+                <label style={lbl}>住所（任意）
+                  <input style={inp} value={newStore.address} onChange={e => setNewStore({ ...newStore, address: e.target.value })} placeholder="例: 東京都渋谷区..." />
+                </label>
+                <button style={addBtn} onClick={addStore}>追加する</button>
+              </>
+            )}
+
+            {storeAddMode === "bulk" && (
+              <>
+                <p style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
+                  1行1店舗で入力。住所を含める場合は <code>店舗名,住所</code> の形式で。
+                </p>
+                <textarea
+                  value={bulkStoreText}
+                  onChange={e => setBulkStoreText(e.target.value)}
+                  placeholder={"AGU hair 渋谷店\nAGU hair 新宿店,東京都新宿区...\nAGU hair 池袋店"}
+                  style={{ ...inp, height: 180, resize: "vertical", fontFamily: "monospace", fontSize: 13 }}
+                />
+                <div style={{ marginTop: 8, fontSize: 13, color: "#999" }}>
+                  {bulkStoreText.split("\n").filter(l => l.trim()).length} 件
+                </div>
+                <button style={addBtn} onClick={bulkAddStores}>一括追加する</button>
+              </>
+            )}
           </div>
 
           <h3 style={{ marginBottom: 12, fontSize: 15 }}>店舗一覧</h3>

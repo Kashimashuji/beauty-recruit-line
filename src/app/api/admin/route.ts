@@ -190,6 +190,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // --- 店舗一括追加 ---
+  if (action === "bulk_add_stores") {
+    const { rows: storeRows } = body as { rows: { name: string; address?: string }[] };
+    if (!storeRows?.length) return NextResponse.json({ error: "データがありません" }, { status: 400 });
+    const session2 = await getSession();
+    if (!session2) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const cid = session2.role === "super" ? (body.company_id ?? null) : session2.company_id;
+    const inserts = storeRows.map(r => ({ name: r.name.trim(), address: r.address?.trim() || null, company_id: cid, is_active: true }));
+    const { error } = await supabaseAdmin.from("stores").insert(inserts);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, count: inserts.length });
+  }
+
   // --- 店舗閉店/再開 ---
   if (action === "toggle_store_active") {
     const { store_id, is_active } = body;
