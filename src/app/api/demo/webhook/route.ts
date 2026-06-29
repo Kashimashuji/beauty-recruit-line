@@ -134,6 +134,18 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
       salon_visit: "サロン見学", briefing: "説明会", consultation: "個別相談",
     };
 
+    const slotLabels = available.map((s: any) => {
+      const dt = new Date(s.starts_at).toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
+        weekday: "short", hour: "2-digit", minute: "2-digit",
+      });
+      const store = (s.stores?.name ?? "").replace(/^AGU hair\s*/i, "");
+      const ev = { salon_visit: "見学", briefing: "説明会", consultation: "相談" }[s.event_type as string] ?? s.event_type;
+      const remaining = s.capacity - s.booked_count;
+      // LINE制限20文字以内のラベル
+      return `${dt} ${store}｜${ev} 残${remaining}`;
+    });
+
     const lines = available.map((s: any, i: number) => {
       const dt = new Date(s.starts_at).toLocaleString("ja-JP", {
         timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
@@ -141,26 +153,30 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
       });
       const store = s.stores?.name ?? "";
       const remaining = s.capacity - s.booked_count;
-      return `${i + 1}. ${dt}\n   ${store}｜${eventLabel[s.event_type] ?? s.event_type}｜残${remaining}名`;
+      return `${dt}\n   ${store}｜${eventLabel[s.event_type] ?? s.event_type}｜残${remaining}名`;
     });
 
     await supabaseAdmin.from("students")
-      .update({ tags: { ...tags, pending_slots: available.map((s: any) => s.id) } })
+      .update({ tags: { ...tags, pending_slots: available.map((s: any) => s.id), slot_labels: slotLabels } })
       .eq("line_user_id", lineUserId);
 
     await push(
       lineUserId,
-      `予約可能な枠は以下の通りです。\n\n${lines.join("\n\n")}`,
-      available.map((_: any, i: number) => `${i + 1}番を予約`)
+      `予約可能な枠は以下の通りです。\n\nボタンを押して選んでください。`,
+      slotLabels
     );
     return;
   }
 
+  const pendingSlots: string[] = tags.pending_slots ?? [];
+  const slotLabels: string[] = tags.slot_labels ?? [];
+  // ボタンラベルで照合（数字入力にも後方互換で対応）
+  const labelIndex = slotLabels.indexOf(text);
   const numMatch = text.match(/^(\d+)/);
   const num = numMatch ? parseInt(numMatch[1], 10) : NaN;
-  const pendingSlots: string[] = tags.pending_slots ?? [];
-  if (!isNaN(num) && num >= 1 && num <= pendingSlots.length) {
-    const slotId = pendingSlots[num - 1];
+  const slotIndex = labelIndex >= 0 ? labelIndex : (!isNaN(num) && num >= 1 && num <= pendingSlots.length ? num - 1 : -1);
+  if (slotIndex >= 0) {
+    const slotId = pendingSlots[slotIndex];
     const { error } = await supabaseAdmin.rpc("book_slot", { p_student: student.id, p_slot: slotId });
 
     await supabaseAdmin.from("students")
