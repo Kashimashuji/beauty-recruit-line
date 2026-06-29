@@ -110,6 +110,10 @@ export default function AdminPage() {
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // スーパー管理者：会社絞り込み
+  const [companies, setCompanies] = useState<{ id: string; name: string; slug: string }[]>([]);
+  const [filterCompanyId, setFilterCompanyId] = useState("");
+
   // 学生一覧フィルター
   const [studentFilter, setStudentFilter] = useState({ grad_year: "", status: "", keyword: "" });
 
@@ -118,6 +122,9 @@ export default function AdminPage() {
   const [pwMsg, setPwMsg] = useState("");
 
   const isLoggedIn = session !== "loading" && session !== null;
+
+  // company_idクエリ文字列を生成（スーパー管理者の絞り込み用）
+  const cq = (base: string) => filterCompanyId ? `${base}&company_id=${filterCompanyId}` : base;
 
   useEffect(() => {
     // セッション確認（401なら未ログイン）
@@ -129,26 +136,32 @@ export default function AdminPage() {
   }, [isLoggedIn]);
 
   useEffect(() => {
+    if (isLoggedIn && session && (session as any).role === "super") {
+      fetch("/api/admin?view=companies").then(r => r.json()).then(j => setCompanies(j.companies ?? []));
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
     if (!isLoggedIn) return;
     if (tab === "add_slot") return;
     if (tab === "slots") {
-      fetch("/api/admin?view=slots").then(r => r.json()).then(j => setSlots(j.slots ?? []));
+      fetch(cq("/api/admin?view=slots")).then(r => r.json()).then(j => setSlots(j.slots ?? []));
       return;
     }
     if (tab === "store_manage") {
-      fetch("/api/admin?view=stores_manage").then(r => r.json()).then(j => setManagedStores(j.stores ?? []));
+      fetch(cq("/api/admin?view=stores_manage")).then(r => r.json()).then(j => setManagedStores(j.stores ?? []));
       return;
     }
     if (tab === "calendar") {
-      fetch("/api/admin?view=slots").then(r => r.json()).then(j => setCalSlots(j.slots ?? []));
+      fetch(cq("/api/admin?view=slots")).then(r => r.json()).then(j => setCalSlots(j.slots ?? []));
       return;
     }
     (async () => {
-      const res = await fetch(`/api/admin?view=${tab}`);
+      const res = await fetch(cq(`/api/admin?view=${tab}`));
       const json = await res.json();
       setRows(tab === "students" ? json.students ?? [] : json.reservations ?? []);
     })();
-  }, [tab]);
+  }, [tab, filterCompanyId]);
 
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
 
@@ -407,7 +420,16 @@ export default function AdminPage() {
           {session && session.role === "super" && <span style={{ fontSize: 13, color: "#06c755", marginLeft: 10, fontWeight: 400 }}>セイファート管理</span>}
           {session && session.role === "company" && <span style={{ fontSize: 13, color: "#666", marginLeft: 10, fontWeight: 400 }}>{session.company_name}</span>}
         </h1>
-        <button onClick={logout} style={{ padding: "6px 16px", border: "1px solid #ccc", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13 }}>ログアウト</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {session && session.role === "super" && companies.length > 0 && (
+            <select value={filterCompanyId} onChange={e => setFilterCompanyId(e.target.value)}
+              style={{ padding: "6px 12px", border: "1px solid #ccc", borderRadius: 6, fontSize: 13, background: "#fff" }}>
+              <option value="">すべての会社</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}（{c.slug}）</option>)}
+            </select>
+          )}
+          <button onClick={logout} style={{ padding: "6px 16px", border: "1px solid #ccc", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13 }}>ログアウト</button>
+        </div>
       </div>
 
       {/* タブ */}

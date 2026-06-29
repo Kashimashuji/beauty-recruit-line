@@ -12,7 +12,17 @@ export async function GET(req: NextRequest) {
 
   const view = req.nextUrl.searchParams.get("view") ?? "reservations";
   const isSuper = session.role === "super";
-  const companyId = isSuper ? null : session.company_id;
+  // スーパー管理者はURLパラメータで会社を絞り込める
+  const filterCompany = isSuper ? (req.nextUrl.searchParams.get("company_id") ?? null) : null;
+  const companyId = isSuper ? filterCompany : session.company_id;
+
+  // 会社一覧（スーパー管理者専用）
+  if (view === "companies") {
+    if (!isSuper) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    const { data, error } = await supabaseAdmin.from("companies").select("id, name, slug").order("name");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ companies: data });
+  }
 
   if (view === "stores") {
     let query = supabaseAdmin.from("stores").select("id, name, salon_id, company_id").order("name");
