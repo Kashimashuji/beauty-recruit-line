@@ -101,6 +101,8 @@ export default function AdminPage() {
 
   const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
+  const isLoggedIn = session !== "loading" && session !== null;
+
   useEffect(() => {
     // セッション確認（401なら未ログイン）
     fetch("/api/admin?view=stores").then(r => {
@@ -108,18 +110,10 @@ export default function AdminPage() {
       setSession(prev => prev === "loading" ? { role: "company", company_name: "" } : prev);
       return r.json();
     }).then(j => setStores(j.stores ?? []));
-  }, [session === "loading" ? "loading" : "ready"]);
-
-  const logout = async () => {
-    await fetch("/api/admin/auth", { method: "DELETE" });
-    setSession(null);
-    setRows([]); setSlots([]);
-  };
-
-  if (session === "loading") return <div style={{ padding: 40, fontFamily: "Meiryo, sans-serif" }}>読み込み中...</div>;
-  if (session === null) return <LoginScreen onLogin={s => setSession(s)} />;
+  }, [isLoggedIn]);
 
   useEffect(() => {
+    if (!isLoggedIn) return;
     if (tab === "add_slot") return;
     if (tab === "slots") {
       fetch("/api/admin?view=slots").then(r => r.json()).then(j => setSlots(j.slots ?? []));
@@ -133,6 +127,15 @@ export default function AdminPage() {
   }, [tab]);
 
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+
+  const logout = async () => {
+    await fetch("/api/admin/auth", { method: "DELETE" });
+    setSession(null);
+    setRows([]); setSlots([]);
+  };
+
+  if (session === "loading") return <div style={{ padding: 40, fontFamily: "Meiryo, sans-serif" }}>読み込み中...</div>;
+  if (session === null) return <LoginScreen onLogin={s => setSession(s)} />;
 
   const toggleManual = async (student: Student) => {
     const next = !student.tags?.manual_mode;
