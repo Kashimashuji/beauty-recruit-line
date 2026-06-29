@@ -94,6 +94,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // --- 枠編集 ---
+  if (action === "update_slot") {
+    const { slot_id, store_id, event_type, starts_at, capacity } = body;
+    if (!slot_id) return NextResponse.json({ error: "missing slot_id" }, { status: 400 });
+    const { error } = await supabaseAdmin.from("reservation_slots")
+      .update({ store_id, event_type, starts_at, capacity: Number(capacity) })
+      .eq("id", slot_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- 枠削除 ---
+  if (action === "delete_slot") {
+    const { slot_id } = body;
+    if (!slot_id) return NextResponse.json({ error: "missing slot_id" }, { status: 400 });
+    // 予約済みの枠は削除不可
+    const { data: slot } = await supabaseAdmin.from("reservation_slots")
+      .select("booked_count").eq("id", slot_id).single();
+    if (slot && slot.booked_count > 0) {
+      return NextResponse.json({ error: "予約済みの枠は削除できません" }, { status: 400 });
+    }
+    const { error } = await supabaseAdmin.from("reservation_slots").delete().eq("id", slot_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
   // --- 手動モード切替 ---
   if (action === "toggle_manual") {
     const { student_id, manual_mode } = body;

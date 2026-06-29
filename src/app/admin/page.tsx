@@ -48,6 +48,10 @@ export default function AdminPage() {
   const [copySlot, setCopySlot] = useState<Slot | null>(null);
   const [copyOffset, setCopyOffset] = useState("7");
 
+  // 編集用
+  const [editSlot, setEditSlot] = useState<Slot | null>(null);
+  const [editForm, setEditForm] = useState({ store_id: "", event_type: "salon_visit", starts_at: "", capacity: "1" });
+
   const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
   useEffect(() => {
@@ -116,6 +120,41 @@ export default function AdminPage() {
     const json = await res.json();
     if (res.ok) { showMsg(`✅ ${json.count}件の予約枠を作成しました。`); }
     else showMsg(`❌ ${json.error}`);
+  };
+
+  const openEdit = (s: Slot) => {
+    setEditSlot(s);
+    const local = new Date(s.starts_at);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const localStr = `${local.getFullYear()}-${pad(local.getMonth()+1)}-${pad(local.getDate())}T${pad(local.getHours())}:${pad(local.getMinutes())}`;
+    setEditForm({ store_id: s.store_id, event_type: s.event_type, starts_at: localStr, capacity: String(s.capacity) });
+  };
+
+  const saveEdit = async () => {
+    if (!editSlot) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update_slot", slot_id: editSlot.id, ...editForm }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg("✅ 枠を更新しました。");
+      setEditSlot(null);
+      fetch("/api/admin?view=slots").then(r => r.json()).then(j => setSlots(j.slots ?? []));
+    } else showMsg(`❌ ${json.error}`);
+  };
+
+  const deleteSlot = async (s: Slot) => {
+    if (!confirm(`この枠を削除しますか？\n${fmt(s.starts_at)}`)) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete_slot", slot_id: s.id }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg("✅ 枠を削除しました。");
+      setSlots(prev => prev.filter(x => x.id !== s.id));
+    } else showMsg(`❌ ${json.error}`);
   };
 
   const doCopy = async () => {
@@ -258,6 +297,35 @@ export default function AdminPage() {
       {/* 枠一覧タブ（コピー機能付き） */}
       {tab === "slots" && (
         <>
+          {/* 編集パネル */}
+          {editSlot && (
+            <div style={{ marginBottom: 20, padding: 16, background: "#e3f2fd", borderRadius: 10, maxWidth: 520, border: "1px solid #90caf9" }}>
+              <div style={{ fontWeight: 700, marginBottom: 12 }}>枠を編集</div>
+              <label style={lbl}>店舗
+                <select style={inp} value={editForm.store_id} onChange={e => setEditForm({ ...editForm, store_id: e.target.value })}>
+                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+              <label style={lbl}>イベント種別
+                <select style={inp} value={editForm.event_type} onChange={e => setEditForm({ ...editForm, event_type: e.target.value })}>
+                  {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </label>
+              <label style={lbl}>日時
+                <input type="datetime-local" style={inp} value={editForm.starts_at}
+                  onChange={e => setEditForm({ ...editForm, starts_at: e.target.value })} />
+              </label>
+              <label style={lbl}>定員
+                <input type="number" min="1" style={inp} value={editForm.capacity}
+                  onChange={e => setEditForm({ ...editForm, capacity: e.target.value })} />
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={addBtn} onClick={saveEdit}>保存</button>
+                <button onClick={() => setEditSlot(null)} style={{ padding: "12px 16px", border: "1px solid #ccc", borderRadius: 8, background: "#fff", cursor: "pointer" }}>キャンセル</button>
+              </div>
+            </div>
+          )}
+
           {copySlot && (
             <div style={{ marginBottom: 20, padding: 16, background: "#f0f9f0", borderRadius: 10, maxWidth: 480 }}>
               <div style={{ fontWeight: 700, marginBottom: 8 }}>コピー元: {fmt(copySlot.starts_at)} ｜ {(copySlot.stores as any)?.name ?? ""} ｜ {eventLabel[copySlot.event_type] ?? copySlot.event_type}</div>
@@ -277,7 +345,7 @@ export default function AdminPage() {
             <thead>
               <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
                 <th style={th}>日時</th><th style={th}>店舗</th><th style={th}>種別</th>
-                <th style={th}>定員</th><th style={th}>予約数</th><th style={th}>操作</th>
+                <th style={th}>定員</th><th style={th}>予約数</th><th style={th} colSpan={3}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -289,10 +357,16 @@ export default function AdminPage() {
                   <td style={td}>{s.capacity}</td>
                   <td style={td}>{s.booked_count ?? 0}</td>
                   <td style={td}>
-                    <button onClick={() => { setCopySlot(s); setCopyOffset("7"); }} style={{
-                      padding: "4px 12px", background: "#e8f5e9", border: "1px solid #06c755",
-                      borderRadius: 6, cursor: "pointer", fontSize: 13, color: "#06803c", fontWeight: 700,
-                    }}>コピー</button>
+                    <button onClick={() => openEdit(s)} style={slotBtn("#e3f2fd", "#1565c0")}>編集</button>
+                  </td>
+                  <td style={td}>
+                    <button onClick={() => { setCopySlot(s); setCopyOffset("7"); }} style={slotBtn("#e8f5e9", "#06803c")}>コピー</button>
+                  </td>
+                  <td style={td}>
+                    <button onClick={() => deleteSlot(s)} disabled={(s.booked_count ?? 0) > 0}
+                      style={slotBtn("#ffebee", (s.booked_count ?? 0) > 0 ? "#bbb" : "#c62828", (s.booked_count ?? 0) > 0)}
+                      title={(s.booked_count ?? 0) > 0 ? "予約済みのため削除不可" : ""}
+                    >削除</button>
                   </td>
                 </tr>
               ))}
@@ -376,6 +450,11 @@ export default function AdminPage() {
   );
 }
 
+const slotBtn = (bg: string, color: string, disabled = false): React.CSSProperties => ({
+  padding: "4px 12px", background: disabled ? "#f5f5f5" : bg,
+  border: `1px solid ${color}`, borderRadius: 6, cursor: disabled ? "not-allowed" : "pointer",
+  fontSize: 13, color: disabled ? "#bbb" : color, fontWeight: 700,
+});
 const th: React.CSSProperties = { padding: "10px 12px", fontWeight: 700 };
 const td: React.CSSProperties = { padding: "10px 12px" };
 const lbl: React.CSSProperties = { display: "block", marginBottom: 14, fontSize: 14, color: "#333" };
