@@ -110,6 +110,9 @@ export default function AdminPage() {
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // 学生一覧フィルター
+  const [studentFilter, setStudentFilter] = useState({ grad_year: "", status: "", keyword: "" });
+
   // パスワード変更フォーム
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
   const [pwMsg, setPwMsg] = useState("");
@@ -870,6 +873,54 @@ export default function AdminPage() {
       {/* 予約一覧・学生一覧 */}
       {(tab === "reservations" || tab === "students") && (
         <>
+          {/* 学生一覧フィルター */}
+          {tab === "students" && (() => {
+            const gradYears = Array.from(new Set(rows.map((r: any) => r.grad_year).filter(Boolean))).sort() as number[];
+            const filtered = rows.filter((r: any) => {
+              if (studentFilter.grad_year && String(r.grad_year) !== studentFilter.grad_year) return false;
+              if (studentFilter.status && r.status !== studentFilter.status) return false;
+              if (studentFilter.keyword) {
+                const kw = studentFilter.keyword.toLowerCase();
+                const haystack = [r.full_name, r.display_name, r.school_name, r.pref_area].filter(Boolean).join(" ").toLowerCase();
+                if (!haystack.includes(kw)) return false;
+              }
+              return true;
+            });
+            return (
+              <>
+                <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <label style={{ fontSize: 13, color: "#555" }}>卒業年度
+                    <select value={studentFilter.grad_year} onChange={e => setStudentFilter(f => ({ ...f, grad_year: e.target.value }))}
+                      style={{ display: "block", marginTop: 4, padding: "7px 10px", border: "1px solid #ccc", borderRadius: 6, fontSize: 14 }}>
+                      <option value="">すべて</option>
+                      {gradYears.map(y => <option key={y} value={y}>{y}年卒</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13, color: "#555" }}>ステータス
+                    <select value={studentFilter.status} onChange={e => setStudentFilter(f => ({ ...f, status: e.target.value }))}
+                      style={{ display: "block", marginTop: 4, padding: "7px 10px", border: "1px solid #ccc", borderRadius: 6, fontSize: 14 }}>
+                      <option value="">すべて</option>
+                      {Object.entries(statusLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13, color: "#555" }}>キーワード
+                    <input value={studentFilter.keyword} onChange={e => setStudentFilter(f => ({ ...f, keyword: e.target.value }))}
+                      placeholder="氏名・学校名・エリア"
+                      style={{ display: "block", marginTop: 4, padding: "7px 10px", border: "1px solid #ccc", borderRadius: 6, fontSize: 14, width: 200 }} />
+                  </label>
+                  {(studentFilter.grad_year || studentFilter.status || studentFilter.keyword) && (
+                    <button onClick={() => setStudentFilter({ grad_year: "", status: "", keyword: "" })}
+                      style={{ padding: "7px 14px", border: "1px solid #ccc", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13, color: "#666" }}>
+                      リセット
+                    </button>
+                  )}
+                  <span style={{ fontSize: 13, color: "#888", marginLeft: "auto" }}>
+                    {filtered.length} / {rows.length} 件
+                  </span>
+                </div>
+              </>
+            );
+          })()}
           {/* 手動対応パネル */}
           {tab === "students" && manualTarget && (
             <div style={{ marginBottom: 20, padding: 16, background: "#fff8e1", borderRadius: 10, maxWidth: 520, border: "1px solid #ffc107" }}>
@@ -890,52 +941,65 @@ export default function AdminPage() {
             </div>
           )}
 
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-            <thead>
-              <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
-                {tab === "reservations" ? (
-                  <><th style={th}>学生</th><th style={th}>学校</th><th style={th}>店舗</th><th style={th}>見学日時</th><th style={th}>状態</th></>
-                ) : (
-                  <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>状態</th><th style={th}>予約日時</th><th style={th}>対応</th></>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.id} style={{ borderBottom: "1px solid #eee", background: r.tags?.manual_mode ? "#fffde7" : "transparent" }}>
-                  {tab === "reservations" ? (
-                    <>
-                      <td style={td}>{r.students?.full_name ?? "-"}</td>
-                      <td style={td}>{r.students?.school_name ?? "-"}</td>
-                      <td style={td}>{r.reservation_slots?.stores?.name ?? "-"}</td>
-                      <td style={td}>{fmt(r.reservation_slots?.starts_at)}</td>
-                      <td style={td}>{statusLabel[r.status] ?? r.status}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td style={td}>{r.display_name ?? r.full_name ?? "-"}</td>
-                      <td style={td}>{r.school_name ?? "-"}</td>
-                      <td style={td}>{r.grad_year ?? "-"}</td>
-                      <td style={td}>{r.pref_area ?? "-"}</td>
-                      <td style={td}>{statusLabel[r.status] ?? r.status}</td>
-                      <td style={td}>{r.booked_at ? fmt(r.booked_at) : "-"}</td>
-                      <td style={td}>
-                        <button
-                          onClick={() => toggleManual(r as Student)}
-                          style={{
-                            padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none",
-                            background: r.tags?.manual_mode ? "#ffc107" : "#eee",
-                            color: r.tags?.manual_mode ? "#333" : "#666",
-                          }}
-                        >{r.tags?.manual_mode ? "🟡 手動中" : "Bot"}</button>
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rows.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>データがありません。</p>}
+          {(() => {
+            const displayRows = tab === "students" ? rows.filter((r: any) => {
+              if (studentFilter.grad_year && String(r.grad_year) !== studentFilter.grad_year) return false;
+              if (studentFilter.status && r.status !== studentFilter.status) return false;
+              if (studentFilter.keyword) {
+                const kw = studentFilter.keyword.toLowerCase();
+                const haystack = [r.full_name, r.display_name, r.school_name, r.pref_area].filter(Boolean).join(" ").toLowerCase();
+                if (!haystack.includes(kw)) return false;
+              }
+              return true;
+            }) : rows;
+            return (
+              <>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                  <thead>
+                    <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
+                      {tab === "reservations" ? (
+                        <><th style={th}>学生</th><th style={th}>学校</th><th style={th}>店舗</th><th style={th}>見学日時</th><th style={th}>状態</th></>
+                      ) : (
+                        <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>状態</th><th style={th}>予約日時</th><th style={th}>対応</th></>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayRows.map((r: any) => (
+                      <tr key={r.id} style={{ borderBottom: "1px solid #eee", background: r.tags?.manual_mode ? "#fffde7" : "transparent" }}>
+                        {tab === "reservations" ? (
+                          <>
+                            <td style={td}>{r.students?.full_name ?? "-"}</td>
+                            <td style={td}>{r.students?.school_name ?? "-"}</td>
+                            <td style={td}>{r.reservation_slots?.stores?.name ?? "-"}</td>
+                            <td style={td}>{fmt(r.reservation_slots?.starts_at)}</td>
+                            <td style={td}>{statusLabel[r.status] ?? r.status}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={td}>{r.display_name ?? r.full_name ?? "-"}</td>
+                            <td style={td}>{r.school_name ?? "-"}</td>
+                            <td style={td}>{r.grad_year ?? "-"}</td>
+                            <td style={td}>{r.pref_area ?? "-"}</td>
+                            <td style={td}>{statusLabel[r.status] ?? r.status}</td>
+                            <td style={td}>{r.booked_at ? fmt(r.booked_at) : "-"}</td>
+                            <td style={td}>
+                              <button onClick={() => toggleManual(r as Student)} style={{
+                                padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none",
+                                background: r.tags?.manual_mode ? "#ffc107" : "#eee",
+                                color: r.tags?.manual_mode ? "#333" : "#666",
+                              }}>{r.tags?.manual_mode ? "🟡 手動中" : "Bot"}</button>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {displayRows.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>該当するデータがありません。</p>}
+              </>
+            );
+          })()}
         </>
       )}
     </main>
