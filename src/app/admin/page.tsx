@@ -105,7 +105,7 @@ export default function AdminPage() {
     if (!singleForm.store_id || !singleForm.starts_at) { showMsg("❌ 店舗と日時を入力してください。"); return; }
     const res = await fetch("/api/admin", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "single", ...singleForm }),
+      body: JSON.stringify({ action: "single", ...singleForm, starts_at: new Date(singleForm.starts_at).toISOString() }),
     });
     const json = await res.json();
     if (res.ok) { showMsg("✅ 予約枠を追加しました。"); setSingleForm({ store_id: singleForm.store_id, event_type: "salon_visit", starts_at: "", capacity: "1" }); }
@@ -137,7 +137,7 @@ export default function AdminPage() {
     if (!editSlot) return;
     const res = await fetch("/api/admin", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "update_slot", slot_id: editSlot.id, ...editForm }),
+      body: JSON.stringify({ action: "update_slot", slot_id: editSlot.id, ...editForm, starts_at: new Date(editForm.starts_at).toISOString() }),
     });
     const json = await res.json();
     if (res.ok) {

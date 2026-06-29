@@ -64,12 +64,11 @@ export async function POST(req: NextRequest) {
     const rows: object[] = [];
     const cur = new Date(start_date + "T00:00:00+09:00");
     const end = new Date(end_date + "T00:00:00+09:00");
-    const [hh, mm] = (time as string).split(":").map(Number);
     while (cur <= end) {
       if ((weekdays as number[]).includes(cur.getDay())) {
-        const dt = new Date(cur);
-        dt.setHours(hh, mm, 0, 0);
-        rows.push({ store_id, event_type: event_type ?? "salon_visit", starts_at: dt.toISOString(), capacity: Number(capacity) });
+        const dateStr = cur.toISOString().slice(0, 10);
+        const starts_at = new Date(`${dateStr}T${time}:00+09:00`).toISOString();
+        rows.push({ store_id, event_type: event_type ?? "salon_visit", starts_at, capacity: Number(capacity) });
       }
       cur.setDate(cur.getDate() + 1);
     }
