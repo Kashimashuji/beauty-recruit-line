@@ -96,8 +96,10 @@ async function handleOnboarding(
     const intent = await classifyIntent(text, "school_name");
 
     if (intent === "question") {
+      const isGreeting = /こんにちは|はじめまして|よろしく|おはよう|こんばん|はろ|ハロ|hello|hi/.test(text);
+      const fallback = isGreeting ? "こんにちは！よろしくお願いします😊" : "ご質問ありがとうございます！";
       const aiReply = await askGemini(staffSystemPrompt(student), text);
-      await push(lineUserId, (aiReply || "ご質問ありがとうございます！") + "\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
+      await push(lineUserId, (aiReply || fallback) + "\n\nまず、通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
       return;
     }
     if (intent === "cancel") {
