@@ -111,10 +111,19 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
     }
     return;
   }
+  const isCorrection = (t: string) => /修正|訂正|間違|やり直|戻|変更/.test(t);
+
   if (!student.grad_year) {
+    if (isCorrection(text)) {
+      await supabaseAdmin.from("students")
+        .update({ school_name: null, tags: { ...(student.tags ?? {}), school_candidates: null } })
+        .eq("line_user_id", lineUserId);
+      await pushText(lineUserId, "学校名の入力に戻ります。\n通っている専門学校名を入力してください。");
+      return;
+    }
     const year = parseInt(text, 10);
     if (isNaN(year) || year < 2020 || year > 2035) {
-      await pushText(lineUserId, "年度を数字で入力してください。\n（例: 2027）");
+      await pushText(lineUserId, "年度を数字で入力してください。\n（例: 2027）\n\n学校名を修正したい場合は「修正」と入力してください。");
       return;
     }
     await supabaseAdmin.from("students").update({ grad_year: year }).eq("line_user_id", lineUserId);
@@ -122,6 +131,13 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
     return;
   }
   if (!student.pref_area) {
+    if (isCorrection(text)) {
+      await supabaseAdmin.from("students")
+        .update({ school_name: null, grad_year: null, tags: { ...(student.tags ?? {}), school_candidates: null } })
+        .eq("line_user_id", lineUserId);
+      await pushText(lineUserId, "学校名の入力に戻ります。\n通っている専門学校名を入力してください。");
+      return;
+    }
     await supabaseAdmin.from("students").update({
       pref_area: text,
       status: "registered",
