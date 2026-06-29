@@ -29,10 +29,15 @@ export async function GET(req: NextRequest) {
   if (view === "students") {
     const { data, error } = await supabaseAdmin
       .from("students")
-      .select("id, full_name, display_name, school_name, grad_year, pref_area, entry_source, status, tags, line_user_id, created_at")
+      .select("id, full_name, display_name, school_name, grad_year, pref_area, entry_source, status, tags, line_user_id, created_at, reservations(created_at)")
       .order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ students: data });
+    // 最新の予約日時を booked_at として付与
+    const students = (data ?? []).map((s: any) => {
+      const dates = (s.reservations ?? []).map((r: any) => r.created_at).sort();
+      return { ...s, booked_at: dates[dates.length - 1] ?? null };
+    });
+    return NextResponse.json({ students });
   }
 
   const { data, error } = await supabaseAdmin

@@ -461,7 +461,7 @@ export default function AdminPage() {
                 {tab === "reservations" ? (
                   <><th style={th}>学生</th><th style={th}>学校</th><th style={th}>店舗</th><th style={th}>見学日時</th><th style={th}>状態</th></>
                 ) : (
-                  <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>状態</th><th style={th}>対応</th></>
+                  <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>状態</th><th style={th}>予約日時</th><th style={th}>対応</th></>
                 )}
               </tr>
             </thead>
@@ -483,6 +483,7 @@ export default function AdminPage() {
                       <td style={td}>{r.grad_year ?? "-"}</td>
                       <td style={td}>{r.pref_area ?? "-"}</td>
                       <td style={td}>{statusLabel[r.status] ?? r.status}</td>
+                      <td style={td}>{r.booked_at ? fmt(r.booked_at) : "-"}</td>
                       <td style={td}>
                         <button
                           onClick={() => toggleManual(r as Student)}
