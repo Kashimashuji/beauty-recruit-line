@@ -254,11 +254,11 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any)
 
   // 枠選択中に不明な入力 → 枠リストを再提示
   if (pendingSlots.length > 0) {
-    if (/修正|戻|キャンセル/.test(text)) {
+    if (/修正|戻|キャンセル|やめ|中止|しない|不要|結構|いらない/.test(text)) {
       await supabaseAdmin.from("students")
         .update({ tags: { ...tags, pending_slots: [] } })
         .eq("line_user_id", lineUserId);
-      await pushText(lineUserId, "予約をキャンセルしました。\n改めて予約する場合は「予約」と送ってください。");
+      await pushText(lineUserId, "わかりました！\n予約が必要になった際はいつでもご連絡ください。");
     } else {
       const { data: slots } = await supabaseAdmin
         .from("reservation_slots")
