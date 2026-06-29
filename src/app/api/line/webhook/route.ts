@@ -3,6 +3,7 @@ import { verifyLineSignature, getProfile, pushText } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
 import { searchSchools, isExactSchool } from "@/lib/schools";
 import { normalizeText } from "@/lib/normalize";
+import { askGemini } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 
@@ -280,9 +281,14 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any)
     return;
   }
 
-  // その他のメッセージ
-  await pushText(
-    lineUserId,
-    "見学・説明会の予約は「予約」と送ってください。\nそのほかのご質問はスタッフにお問い合わせください。"
-  );
+  // AIで自由回答
+  const systemPrompt = `あなたは美容サロンの採用担当スタッフとしてLINEで学生に対応しています。
+学生の質問に対して、採用担当として自然で親切に回答してください。
+回答は3文以内で簡潔に。絵文字は1〜2個まで。
+予約・登録に関する操作は案内するだけにして、実際の処理はしないでください。
+予約は「予約」と送るよう案内してください。
+学生情報: 学校=${student.school_name ?? "未登録"}, 卒業年度=${student.grad_year ?? "未登録"}, 希望エリア=${student.pref_area ?? "未登録"}`;
+
+  const aiReply = await askGemini(systemPrompt, text);
+  await pushText(lineUserId, aiReply || "ご質問はスタッフにお問い合わせください。");
 }
