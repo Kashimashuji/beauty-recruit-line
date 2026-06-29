@@ -404,7 +404,7 @@ export default function AdminPage() {
     <main style={{ padding: 32, fontFamily: "Meiryo, sans-serif" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1>採用管理ダッシュボード
-          {session && session.role === "super" && <span style={{ fontSize: 13, color: "#06c755", marginLeft: 10, fontWeight: 400 }}>スーパー管理者</span>}
+          {session && session.role === "super" && <span style={{ fontSize: 13, color: "#06c755", marginLeft: 10, fontWeight: 400 }}>セイファート管理</span>}
           {session && session.role === "company" && <span style={{ fontSize: 13, color: "#666", marginLeft: 10, fontWeight: 400 }}>{session.company_name}</span>}
         </h1>
         <button onClick={logout} style={{ padding: "6px 16px", border: "1px solid #ccc", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13 }}>ログアウト</button>
