@@ -105,11 +105,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // --- 枠削除 ---
+  // --- 枠削除（単体） ---
   if (action === "delete_slot") {
     const { slot_id } = body;
     if (!slot_id) return NextResponse.json({ error: "missing slot_id" }, { status: 400 });
-    // 予約済みの枠は削除不可
     const { data: slot } = await supabaseAdmin.from("reservation_slots")
       .select("booked_count").eq("id", slot_id).single();
     if (slot && slot.booked_count > 0) {
@@ -118,6 +117,20 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin.from("reservation_slots").delete().eq("id", slot_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
+  }
+
+  // --- 枠一括削除 ---
+  if (action === "bulk_delete_slots") {
+    const { slot_ids } = body as { slot_ids: string[] };
+    if (!slot_ids?.length) return NextResponse.json({ error: "missing slot_ids" }, { status: 400 });
+    const { data: booked } = await supabaseAdmin.from("reservation_slots")
+      .select("id").in("id", slot_ids).gt("booked_count", 0);
+    if (booked && booked.length > 0) {
+      return NextResponse.json({ error: `${booked.length}件は予約済みのため削除できません` }, { status: 400 });
+    }
+    const { error } = await supabaseAdmin.from("reservation_slots").delete().in("id", slot_ids);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, count: slot_ids.length });
   }
 
   // --- 手動モード切替 ---

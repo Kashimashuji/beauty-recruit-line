@@ -52,6 +52,9 @@ export default function AdminPage() {
   const [editSlot, setEditSlot] = useState<Slot | null>(null);
   const [editForm, setEditForm] = useState({ store_id: "", event_type: "salon_visit", starts_at: "", capacity: "1" });
 
+  // 選択・一括削除用
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
   useEffect(() => {
@@ -154,6 +157,33 @@ export default function AdminPage() {
     if (res.ok) {
       showMsg("✅ 枠を削除しました。");
       setSlots(prev => prev.filter(x => x.id !== s.id));
+    } else showMsg(`❌ ${json.error}`);
+  };
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const toggleSelectAll = () => {
+    const deletable = slots.filter(s => (s.booked_count ?? 0) === 0).map(s => s.id);
+    if (deletable.every(id => selectedIds.has(id)) && deletable.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(deletable));
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`選択した${selectedIds.size}件の枠を削除しますか？`)) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "bulk_delete_slots", slot_ids: Array.from(selectedIds) }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg(`✅ ${json.count}件を削除しました。`);
+      setSlots(prev => prev.filter(s => !selectedIds.has(s.id)));
+      setSelectedIds(new Set());
     } else showMsg(`❌ ${json.error}`);
   };
 
@@ -341,35 +371,61 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+          {/* 一括削除バー */}
+          {selectedIds.size > 0 && (
+            <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 14, color: "#333" }}>{selectedIds.size}件選択中</span>
+              <button onClick={bulkDelete} style={{ padding: "6px 18px", background: "#c62828", color: "#fff", border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+                一括削除
+              </button>
+              <button onClick={() => setSelectedIds(new Set())} style={{ padding: "6px 12px", background: "#eee", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
+                選択解除
+              </button>
+            </div>
+          )}
+
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
+                <th style={th}>
+                  <input type="checkbox"
+                    onChange={toggleSelectAll}
+                    checked={slots.filter(s => (s.booked_count ?? 0) === 0).length > 0 && slots.filter(s => (s.booked_count ?? 0) === 0).every(s => selectedIds.has(s.id))}
+                  />
+                </th>
                 <th style={th}>日時</th><th style={th}>店舗</th><th style={th}>種別</th>
                 <th style={th}>定員</th><th style={th}>予約数</th><th style={th} colSpan={3}>操作</th>
               </tr>
             </thead>
             <tbody>
-              {slots.map(s => (
-                <tr key={s.id} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={td}>{fmt(s.starts_at)}</td>
-                  <td style={td}>{(s.stores as any)?.name ?? "-"}</td>
-                  <td style={td}>{eventLabel[s.event_type] ?? s.event_type}</td>
-                  <td style={td}>{s.capacity}</td>
-                  <td style={td}>{s.booked_count ?? 0}</td>
-                  <td style={td}>
-                    <button onClick={() => openEdit(s)} style={slotBtn("#e3f2fd", "#1565c0")}>編集</button>
-                  </td>
-                  <td style={td}>
-                    <button onClick={() => { setCopySlot(s); setCopyOffset("7"); }} style={slotBtn("#e8f5e9", "#06803c")}>コピー</button>
-                  </td>
-                  <td style={td}>
-                    <button onClick={() => deleteSlot(s)} disabled={(s.booked_count ?? 0) > 0}
-                      style={slotBtn("#ffebee", (s.booked_count ?? 0) > 0 ? "#bbb" : "#c62828", (s.booked_count ?? 0) > 0)}
-                      title={(s.booked_count ?? 0) > 0 ? "予約済みのため削除不可" : ""}
-                    >削除</button>
-                  </td>
-                </tr>
-              ))}
+              {slots.map(s => {
+                const hasBooking = (s.booked_count ?? 0) > 0;
+                return (
+                  <tr key={s.id} style={{ borderBottom: "1px solid #eee", background: selectedIds.has(s.id) ? "#fce4ec" : "transparent" }}>
+                    <td style={td}>
+                      <input type="checkbox" disabled={hasBooking} checked={selectedIds.has(s.id)}
+                        onChange={() => toggleSelect(s.id)} />
+                    </td>
+                    <td style={td}>{fmt(s.starts_at)}</td>
+                    <td style={td}>{(s.stores as any)?.name ?? "-"}</td>
+                    <td style={td}>{eventLabel[s.event_type] ?? s.event_type}</td>
+                    <td style={td}>{s.capacity}</td>
+                    <td style={td}>{s.booked_count ?? 0}</td>
+                    <td style={td}>
+                      <button onClick={() => openEdit(s)} style={slotBtn("#e3f2fd", "#1565c0")}>編集</button>
+                    </td>
+                    <td style={td}>
+                      <button onClick={() => { setCopySlot(s); setCopyOffset("7"); }} style={slotBtn("#e8f5e9", "#06803c")}>コピー</button>
+                    </td>
+                    <td style={td}>
+                      <button onClick={() => deleteSlot(s)} disabled={hasBooking}
+                        style={slotBtn("#ffebee", hasBooking ? "#bbb" : "#c62828", hasBooking)}
+                        title={hasBooking ? "予約済みのため削除不可" : ""}
+                      >削除</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {slots.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>データがありません。</p>}
