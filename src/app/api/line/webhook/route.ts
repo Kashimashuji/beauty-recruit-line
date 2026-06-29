@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyLineSignature, getProfile, pushText } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
 import { searchSchools, isExactSchool } from "@/lib/schools";
+import { normalizeText } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
     if (ev.type === "follow") {
       await handleFollow(lineUserId);
     } else if (ev.type === "message" && ev.message?.type === "text") {
-      await handleMessage(lineUserId, ev.message.text.trim());
+      await handleMessage(lineUserId, normalizeText(ev.message.text));
     }
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getProfile } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
 import { searchSchools, isExactSchool } from "@/lib/schools";
+import { normalizeText } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
       );
       await push(lineUserId, "デモユーザーさん、友だち追加ありがとうございます！\n美容業界への就職に向けてサポートします。\n\nまず、通っている専門学校名を教えてください。");
     } else if (ev.type === "message" && ev.message?.type === "text") {
-      await handleMessage(lineUserId, ev.message.text.trim(), push);
+      await handleMessage(lineUserId, normalizeText(ev.message.text), push);
     }
   }
 
