@@ -68,7 +68,7 @@ const statusLabel: Record<string, string> = {
 
 export default function AdminPage() {
   const [session, setSession] = useState<SessionInfo | null | "loading">("loading");
-  const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots" | "store_manage" | "settings">("reservations");
+  const [tab, setTab] = useState<"calendar" | "reservations" | "students" | "add_slot" | "slots" | "store_manage" | "settings">("calendar");
   const [rows, setRows] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -105,6 +105,11 @@ export default function AdminPage() {
 
   const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
+  // カレンダー用
+  const [calSlots, setCalSlots] = useState<Slot[]>([]);
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
   // パスワード変更フォーム
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
   const [pwMsg, setPwMsg] = useState("");
@@ -129,6 +134,10 @@ export default function AdminPage() {
     }
     if (tab === "store_manage") {
       fetch("/api/admin?view=stores_manage").then(r => r.json()).then(j => setManagedStores(j.stores ?? []));
+      return;
+    }
+    if (tab === "calendar") {
+      fetch("/api/admin?view=slots").then(r => r.json()).then(j => setCalSlots(j.slots ?? []));
       return;
     }
     (async () => {
@@ -345,6 +354,7 @@ export default function AdminPage() {
   };
 
   const tabs = [
+    { key: "calendar",      label: "📅 カレンダー" },
     { key: "reservations",  label: "予約一覧" },
     { key: "students",      label: "学生一覧" },
     { key: "slots",         label: "枠一覧" },
@@ -377,6 +387,145 @@ export default function AdminPage() {
 
       {/* フラッシュメッセージ */}
       {msg && <p style={{ marginBottom: 16, color: msg.startsWith("❌") ? "#c0392b" : "#06803c" }}>{msg}</p>}
+
+      {/* カレンダータブ */}
+      {tab === "calendar" && (() => {
+        const { year, month } = calMonth;
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const weeks: (number | null)[][] = [];
+        let week: (number | null)[] = Array(firstDay).fill(null);
+        for (let d = 1; d <= daysInMonth; d++) {
+          week.push(d);
+          if (week.length === 7) { weeks.push(week); week = []; }
+        }
+        if (week.length > 0) weeks.push([...week, ...Array(7 - week.length).fill(null)]);
+
+        const toKey = (d: number) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const slotsByDay: Record<string, Slot[]> = {};
+        for (const s of calSlots) {
+          const key = new Date(s.starts_at).toLocaleDateString("sv", { timeZone: "Asia/Tokyo" });
+          if (!slotsByDay[key]) slotsByDay[key] = [];
+          slotsByDay[key].push(s);
+        }
+
+        const dayRate = (daySlotList: Slot[]) => {
+          const cap = daySlotList.reduce((a, s) => a + s.capacity, 0);
+          const booked = daySlotList.reduce((a, s) => a + (s.booked_count ?? 0), 0);
+          return cap > 0 ? booked / cap : 0;
+        };
+        const rateColor = (r: number) => r >= 1 ? "#c62828" : r >= 0.5 ? "#f57c00" : "#06803c";
+        const rateBg = (r: number) => r >= 1 ? "#ffebee" : r >= 0.5 ? "#fff3e0" : "#e8f5e9";
+
+        const selectedSlots = selectedDate ? (slotsByDay[selectedDate] ?? []) : [];
+        const evLabel: Record<string, string> = { salon_visit: "見学", briefing: "説明会", consultation: "相談" };
+
+        return (
+          <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+            {/* カレンダー本体 */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* 月ナビゲーション */}
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+                <button onClick={() => setCalMonth(m => { const d = new Date(m.year, m.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}
+                  style={{ padding: "6px 14px", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer", background: "#fff", fontSize: 16 }}>‹</button>
+                <span style={{ fontWeight: 700, fontSize: 18, minWidth: 140, textAlign: "center" }}>{year}年 {month + 1}月</span>
+                <button onClick={() => setCalMonth(m => { const d = new Date(m.year, m.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}
+                  style={{ padding: "6px 14px", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer", background: "#fff", fontSize: 16 }}>›</button>
+                <button onClick={() => { const d = new Date(); setCalMonth({ year: d.getFullYear(), month: d.getMonth() }); }}
+                  style={{ padding: "6px 14px", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer", background: "#fff", fontSize: 13, color: "#666" }}>今月</button>
+              </div>
+
+              {/* 曜日ヘッダー */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 2 }}>
+                {["日","月","火","水","木","金","土"].map((w, i) => (
+                  <div key={w} style={{ textAlign: "center", fontSize: 13, fontWeight: 700, padding: "6px 0",
+                    color: i === 0 ? "#c62828" : i === 6 ? "#1565c0" : "#333" }}>{w}</div>
+                ))}
+              </div>
+
+              {/* カレンダーグリッド */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {weeks.map((week, wi) => (
+                  <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                    {week.map((day, di) => {
+                      if (!day) return <div key={di} style={{ minHeight: 80, background: "#fafafa", borderRadius: 6 }} />;
+                      const key = toKey(day);
+                      const daySlots = slotsByDay[key] ?? [];
+                      const rate = dayRate(daySlots);
+                      const isToday = key === new Date().toLocaleDateString("sv", { timeZone: "Asia/Tokyo" });
+                      const isSelected = key === selectedDate;
+                      const grouped = daySlots.reduce((acc, s) => {
+                        const ev = evLabel[s.event_type] ?? s.event_type;
+                        acc[ev] = (acc[ev] ?? 0) + 1;
+                        return acc;
+                      }, {} as Record<string, number>);
+
+                      return (
+                        <div key={di} onClick={() => setSelectedDate(key === selectedDate ? null : key)}
+                          style={{
+                            minHeight: 80, padding: "6px 6px 4px", borderRadius: 6, cursor: daySlots.length > 0 ? "pointer" : "default",
+                            border: isSelected ? "2px solid #06c755" : isToday ? "2px solid #1565c0" : "1px solid #e0e0e0",
+                            background: isSelected ? "#f0fff4" : daySlots.length > 0 ? rateBg(rate) : "#fff",
+                          }}>
+                          <div style={{ fontSize: 13, fontWeight: isToday ? 700 : 400,
+                            color: di === 0 ? "#c62828" : di === 6 ? "#1565c0" : "#333", marginBottom: 4 }}>{day}</div>
+                          {Object.entries(grouped).map(([ev, cnt]) => (
+                            <div key={ev} style={{ fontSize: 11, color: "#333", lineHeight: 1.6 }}>{ev} {cnt}件</div>
+                          ))}
+                          {daySlots.length > 0 && (
+                            <div style={{ marginTop: 4, height: 4, background: "#e0e0e0", borderRadius: 2 }}>
+                              <div style={{ width: `${Math.round(rate * 100)}%`, height: "100%", background: rateColor(rate), borderRadius: 2 }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* サイドパネル */}
+            <div style={{ width: 280, flexShrink: 0 }}>
+              {selectedDate ? (
+                <div style={{ border: "1px solid #e0e0e0", borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{ padding: "12px 16px", background: "#06c755", color: "#fff", fontWeight: 700, fontSize: 15 }}>
+                    {new Date(selectedDate + "T00:00:00+09:00").toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" })}
+                  </div>
+                  {selectedSlots.length === 0
+                    ? <p style={{ padding: 16, color: "#999", fontSize: 14 }}>この日の予約枠はありません</p>
+                    : selectedSlots.sort((a, b) => a.starts_at.localeCompare(b.starts_at)).map(s => {
+                        const r = s.capacity > 0 ? s.booked_count / s.capacity : 0;
+                        const rc = rateColor(r);
+                        return (
+                          <div key={s.id} style={{ padding: "12px 16px", borderBottom: "1px solid #f0f0f0" }}>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                              {new Date(s.starts_at).toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" })}
+                              {" "}<span style={{ fontSize: 12, fontWeight: 400, color: "#666" }}>{evLabel[s.event_type] ?? s.event_type}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>{(s.stores as any)?.name ?? "-"}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ flex: 1, height: 6, background: "#e0e0e0", borderRadius: 3 }}>
+                                <div style={{ width: `${Math.round(r * 100)}%`, height: "100%", background: rc, borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: rc, minWidth: 60 }}>
+                                {s.booked_count ?? 0}/{s.capacity}名 ({Math.round(r * 100)}%)
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+              ) : (
+                <div style={{ padding: 20, background: "#fafafa", borderRadius: 10, color: "#999", fontSize: 14, textAlign: "center" }}>
+                  日付をクリックすると<br />詳細が表示されます
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 設定タブ */}
       {tab === "settings" && (
