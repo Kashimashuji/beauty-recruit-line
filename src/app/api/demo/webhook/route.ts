@@ -9,8 +9,10 @@ export async function POST(req: NextRequest) {
   const { events } = await req.json();
   const replies: string[] = [];
 
-  const push = async (to: string, text: string) => {
+  const quickReplies: string[] = [];
+  const push = async (to: string, text: string, buttons?: string[]) => {
     replies.push(text);
+    if (buttons) quickReplies.push(...buttons);
   };
 
   for (const ev of events ?? []) {
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, replies });
+  return NextResponse.json({ ok: true, replies, quickReplies });
 }
 
 async function handleMessage(lineUserId: string, text: string, push: (to: string, text: string) => Promise<void>) {
@@ -72,7 +74,7 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
       pref_area: text, status: "registered",
       registered_at: new Date().toISOString(),
     }).eq("line_user_id", lineUserId);
-    await push(lineUserId, "登録完了です！ありがとうございました🎉\n\n見学・説明会の予約をご希望の方は「予約」と送ってください。");
+    await push(lineUserId, "登録完了です！ありがとうございました🎉\n\n見学・説明会の予約をご希望の方はボタンを押してください。", ["予約する"]);
     return;
   }
 }
@@ -80,7 +82,7 @@ async function handleOnboarding(lineUserId: string, text: string, student: any, 
 async function handleBookingFlow(lineUserId: string, text: string, student: any, push: (to: string, text: string) => Promise<void>) {
   const tags: any = student.tags ?? {};
 
-  if (text === "予約" || text === "よやく" || text === "予約したい") {
+  if (["予約", "よやく", "予約したい", "予約する", "別の枠も予約する"].includes(text)) {
     const { data: slots } = await supabaseAdmin
       .from("reservation_slots")
       .select("id, starts_at, capacity, booked_count, event_type, stores(name)")
@@ -112,11 +114,16 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
       .update({ tags: { ...tags, pending_slots: available.map((s: any) => s.id) } })
       .eq("line_user_id", lineUserId);
 
-    await push(lineUserId, `予約可能な枠は以下の通りです。\n番号を送ってください。\n\n${lines.join("\n\n")}`);
+    await push(
+      lineUserId,
+      `予約可能な枠は以下の通りです。\n\n${lines.join("\n\n")}`,
+      available.map((_: any, i: number) => `${i + 1}番を予約`)
+    );
     return;
   }
 
-  const num = parseInt(text, 10);
+  const numMatch = text.match(/^(\d+)/);
+  const num = numMatch ? parseInt(numMatch[1], 10) : NaN;
   const pendingSlots: string[] = tags.pending_slots ?? [];
   if (!isNaN(num) && num >= 1 && num <= pendingSlots.length) {
     const slotId = pendingSlots[num - 1];
@@ -143,10 +150,10 @@ async function handleBookingFlow(lineUserId: string, text: string, student: any,
         timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
         weekday: "short", hour: "2-digit", minute: "2-digit",
       });
-      await push(lineUserId, `ご予約ありがとうございます！\n\n📅 ${dt}\n📍 ${(slot.stores as any)?.name ?? ""}\n\n当日お会いできるのを楽しみにしています。`);
+      await push(lineUserId, `ご予約ありがとうございます！\n\n📅 ${dt}\n📍 ${(slot.stores as any)?.name ?? ""}\n\n当日お会いできるのを楽しみにしています。`, ["別の枠も予約する"]);
     }
     return;
   }
 
-  await push(lineUserId, "見学・説明会の予約は「予約」と送ってください。");
+  await push(lineUserId, "見学・説明会の予約はボタンを押してください。", ["予約する"]);
 }

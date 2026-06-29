@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 
 type Msg = { from: "user" | "bot"; text: string };
+type QuickReply = string;
 
 const TEST_UID = "demo-user-" + Math.random().toString(36).slice(2, 8);
 
 export default function DemoPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -39,12 +41,14 @@ export default function DemoPage() {
         addMsg({ from: "bot", text });
       }
     }
+    setQuickReplies(json.quickReplies ?? []);
   };
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     if (!text || loading) return;
     setInput("");
+    setQuickReplies([]);
     addMsg({ from: "user", text });
     setLoading(true);
     await sendWebhook({
@@ -82,6 +86,14 @@ export default function DemoPage() {
             <div style={{ ...botBubble, color: "#aaa" }}>入力中…</div>
           </div>
         )}
+        {/* クイックリプライボタン */}
+        {quickReplies.length > 0 && !loading && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end", marginBottom: 8 }}>
+            {quickReplies.map((label, i) => (
+              <button key={i} onClick={() => send(label)} style={qrBtn}>{label}</button>
+            ))}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -109,3 +121,4 @@ const botIcon: React.CSSProperties = { width: 32, height: 32, borderRadius: "50%
 const inputArea: React.CSSProperties = { display: "flex", padding: "12px 16px", gap: 8, borderTop: "1px solid #e5e5e5", background: "#fff" };
 const inputBox: React.CSSProperties = { flex: 1, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 24, fontSize: 14, outline: "none" };
 const sendBtn: React.CSSProperties = { padding: "10px 20px", background: "#06c755", color: "#fff", border: "none", borderRadius: 24, fontWeight: 700, cursor: "pointer" };
+const qrBtn: React.CSSProperties = { padding: "8px 16px", background: "#fff", color: "#06c755", border: "2px solid #06c755", borderRadius: 20, fontWeight: 700, cursor: "pointer", fontSize: 13 };
