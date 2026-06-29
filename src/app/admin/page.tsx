@@ -68,7 +68,7 @@ const statusLabel: Record<string, string> = {
 
 export default function AdminPage() {
   const [session, setSession] = useState<SessionInfo | null | "loading">("loading");
-  const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots">("reservations");
+  const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots" | "settings">("reservations");
   const [rows, setRows] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -101,6 +101,10 @@ export default function AdminPage() {
 
   const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
+  // パスワード変更フォーム
+  const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
+  const [pwMsg, setPwMsg] = useState("");
+
   const isLoggedIn = session !== "loading" && session !== null;
 
   useEffect(() => {
@@ -127,6 +131,20 @@ export default function AdminPage() {
   }, [tab]);
 
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+
+  const changePassword = async () => {
+    setPwMsg("");
+    if (!pwForm.current || !pwForm.next) { setPwMsg("❌ 全項目を入力してください"); return; }
+    if (pwForm.next !== pwForm.confirm) { setPwMsg("❌ 新しいパスワードが一致しません"); return; }
+    if (pwForm.next.length < 6) { setPwMsg("❌ 6文字以上で設定してください"); return; }
+    const res = await fetch("/api/admin/auth", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: pwForm.current, new_password: pwForm.next }),
+    });
+    const json = await res.json();
+    if (res.ok) { setPwMsg("✅ パスワードを変更しました"); setPwForm({ current: "", next: "", confirm: "" }); }
+    else setPwMsg(`❌ ${json.error}`);
+  };
 
   const logout = async () => {
     await fetch("/api/admin/auth", { method: "DELETE" });
@@ -273,6 +291,7 @@ export default function AdminPage() {
     { key: "students",     label: "学生一覧" },
     { key: "slots",        label: "枠一覧" },
     { key: "add_slot",     label: "＋ 予約枠追加" },
+    { key: "settings",     label: "設定" },
   ] as const;
 
   return (
@@ -299,6 +318,27 @@ export default function AdminPage() {
 
       {/* フラッシュメッセージ */}
       {msg && <p style={{ marginBottom: 16, color: msg.startsWith("❌") ? "#c0392b" : "#06803c" }}>{msg}</p>}
+
+      {/* 設定タブ */}
+      {tab === "settings" && (
+        <div style={{ maxWidth: 400 }}>
+          <h2 style={{ marginBottom: 20, fontSize: 16 }}>パスワード変更</h2>
+          {pwMsg && <p style={{ color: pwMsg.startsWith("❌") ? "#c0392b" : "#06803c", marginBottom: 12 }}>{pwMsg}</p>}
+          <label style={lbl}>現在のパスワード
+            <input type="password" style={inp} value={pwForm.current}
+              onChange={e => setPwForm({ ...pwForm, current: e.target.value })} />
+          </label>
+          <label style={lbl}>新しいパスワード（6文字以上）
+            <input type="password" style={inp} value={pwForm.next}
+              onChange={e => setPwForm({ ...pwForm, next: e.target.value })} />
+          </label>
+          <label style={lbl}>新しいパスワード（確認）
+            <input type="password" style={inp} value={pwForm.confirm}
+              onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} />
+          </label>
+          <button style={addBtn} onClick={changePassword}>変更する</button>
+        </div>
+      )}
 
       {/* 予約枠追加タブ */}
       {tab === "add_slot" && (

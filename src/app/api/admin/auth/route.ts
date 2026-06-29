@@ -28,3 +28,25 @@ export async function DELETE() {
   res.cookies.set("admin_session", "", { maxAge: 0, path: "/" });
   return res;
 }
+
+export async function PATCH(req: NextRequest) {
+  const { getSession } = await import("@/lib/auth");
+  const session = await getSession();
+  if (!session || session.role !== "company") {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const { current_password, new_password } = await req.json();
+  if (!current_password || !new_password || new_password.length < 6) {
+    return NextResponse.json({ error: "パスワードは6文字以上で入力してください" }, { status: 400 });
+  }
+  const { supabaseAdmin } = await import("@/lib/supabase");
+  const { data } = await supabaseAdmin
+    .from("companies").select("password").eq("id", session.company_id).single();
+  if (!data || data.password !== current_password) {
+    return NextResponse.json({ error: "現在のパスワードが違います" }, { status: 401 });
+  }
+  const { error } = await supabaseAdmin
+    .from("companies").update({ password: new_password }).eq("id", session.company_id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
