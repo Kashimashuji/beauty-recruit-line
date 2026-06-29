@@ -122,10 +122,16 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
         .eq("line_user_id", lineUserId);
       await pushText(lineUserId, `以下から学校名を選んでください。\n\n${hits.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n番号を送ってください。\n一覧にない場合は「0」を送ると入力した名前でそのまま登録します。`);
     } else {
-      await supabaseAdmin.from("students")
-        .update({ tags: { ...(student.tags ?? {}), school_candidates: [], school_query: text } })
-        .eq("line_user_id", lineUserId);
-      await pushText(lineUserId, `「${text}」に一致する学校が見つかりませんでした。\n別のキーワードで再入力するか、「0」を送るとそのまま登録できます。`);
+      // 学校名っぽくない入力はAIで自然に返す
+      const aiReply = await askGemini(staffSystemPrompt(student), text);
+      if (aiReply) {
+        await pushText(lineUserId, aiReply + "\n\n通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
+      } else {
+        await supabaseAdmin.from("students")
+          .update({ tags: { ...(student.tags ?? {}), school_candidates: [], school_query: text } })
+          .eq("line_user_id", lineUserId);
+        await pushText(lineUserId, `「${text}」に一致する学校が見つかりませんでした。\n別のキーワードで再入力するか、「0」を送るとそのまま登録できます。`);
+      }
     }
     return;
   }

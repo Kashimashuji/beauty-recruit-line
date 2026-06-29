@@ -117,11 +117,17 @@ async function handleOnboarding(
         [...hits, `「${text}」で登録`]
       );
     } else {
-      await push(
-        lineUserId,
-        `「${text}」に一致する学校が見つかりませんでした。\n別のキーワードで再入力するか、そのまま登録できます。`,
-        [`「${text}」で登録`]
-      );
+      // 学校名っぽくない入力はAIで自然に返す
+      const aiReply = await askGemini(staffSystemPrompt(student), text);
+      if (aiReply) {
+        await push(lineUserId, aiReply + "\n\n通っている専門学校名を教えてください。\n（最初の2〜3文字で検索できます）");
+      } else {
+        await push(
+          lineUserId,
+          `「${text}」に一致する学校が見つかりませんでした。\n別のキーワードで再入力するか、そのまま登録できます。`,
+          [`「${text}」で登録`]
+        );
+      }
     }
     return;
   }
