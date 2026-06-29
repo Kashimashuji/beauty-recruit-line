@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyLineSignature, getProfile, pushText } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
+import { searchSchools, isExactSchool } from "@/lib/schools";
 
 export const runtime = "nodejs";
 
@@ -67,9 +68,34 @@ async function handleMessage(lineUserId: string, text: string) {
 }
 
 async function handleOnboarding(lineUserId: string, text: string, student: any) {
+  // 学校候補から番号選択
+  if (!student.school_name && student.tags?.school_candidates) {
+    const candidates: string[] = student.tags.school_candidates;
+    const num = parseInt(text, 10);
+    if (!isNaN(num) && num >= 1 && num <= candidates.length) {
+      const chosen = candidates[num - 1];
+      await supabaseAdmin.from("students").update({
+        school_name: chosen,
+        tags: { ...student.tags, school_candidates: null },
+      }).eq("line_user_id", lineUserId);
+      await pushText(lineUserId, `「${chosen}」で登録しました！\n次に、卒業予定年度を教えてください。\n（例: 2027）`);
+      return;
+    }
+  }
+
   if (!student.school_name) {
-    await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
-    await pushText(lineUserId, "ありがとうございます！\n次に、卒業予定年度を教えてください。\n（例: 2027）");
+    if (isExactSchool(text)) {
+      await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
+      await pushText(lineUserId, `「${text}」で登録しました！\n次に、卒業予定年度を教えてください。\n（例: 2027）`);
+    } else {
+      const hits = searchSchools(text);
+      if (hits.length > 0) {
+        await pushText(lineUserId, `以下から学校名を選んでください。\n\n${hits.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n番号を送ってください。見つからない場合は別のキーワードで再入力してください。`);
+        await supabaseAdmin.from("students").update({ tags: { ...(student.tags ?? {}), school_candidates: hits } }).eq("line_user_id", lineUserId);
+      } else {
+        await pushText(lineUserId, "学校名が見つかりませんでした。\n別のキーワードで入力してみてください。\n（例:「山野」「東京ベル」など）");
+      }
+    }
     return;
   }
   if (!student.grad_year) {

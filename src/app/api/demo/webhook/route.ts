@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProfile } from "@/lib/line";
 import { supabaseAdmin } from "@/lib/supabase";
+import { searchSchools, isExactSchool } from "@/lib/schools";
 
 export const runtime = "nodejs";
 
@@ -55,8 +56,17 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
 
 async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string) => Promise<void>) {
   if (!student.school_name) {
-    await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
-    await push(lineUserId, "ありがとうございます！\n次に、卒業予定年度を教えてください。\n（例: 2027）");
+    if (isExactSchool(text)) {
+      await supabaseAdmin.from("students").update({ school_name: text }).eq("line_user_id", lineUserId);
+      await push(lineUserId, `「${text}」で登録しました！\n次に、卒業予定年度を教えてください。\n（例: 2027）`);
+    } else {
+      const hits = searchSchools(text);
+      if (hits.length > 0) {
+        await push(lineUserId, "以下から学校名を選んでください。\n見つからない場合はキーワードを変えて再入力してください。", hits);
+      } else {
+        await push(lineUserId, "学校名が見つかりませんでした。\n別のキーワードで入力してみてください。\n（例:「山野」「東京ベル」など）");
+      }
+    }
     return;
   }
   if (!student.grad_year) {
