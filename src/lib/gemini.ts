@@ -23,7 +23,7 @@ export type Intent = "input" | "question" | "cancel" | "correction";
 function keywordFallback(text: string): Intent {
   if (/やめ|中止|キャンセル|しない|不要|結構|いらない|断る|遠慮/.test(text)) return "cancel";
   if (/修正|訂正|間違|やり直|戻|変更/.test(text)) return "correction";
-  if (/[？?]|こんにちは|はじめまして|よろしく|おはよう|こんばん|ありがとう|どう|教えて|なぜ|なんで|いつ|どこ|服装|持ち物|給料|待遇|休み/.test(text)) return "question";
+  if (/[？?]|こんにちは|はじめまして|よろしく|おはよう|こんばん|ありがとう|どう|教えて|なぜ|なんで|いつ|どこ|服装|持ち物|給料|待遇|休み|いいね|なるほど|そうか|そっか|へえ|ほんと|わかった|了解|オッケー|おk|ok|OK|すごい|いい感じ|楽しみ|嬉しい|よかった|助かり/.test(text)) return "question";
   return "input";
 }
 
