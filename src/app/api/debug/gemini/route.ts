@@ -3,25 +3,27 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "GEMINI_API_KEY not set" }, { status: 500 });
+  const groqKey = process.env.GROQ_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
 
-  const isOAuth = apiKey.startsWith("AQ.");
-  const url = isOAuth
-    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent`
-    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (isOAuth) headers["Authorization"] = `Bearer ${apiKey}`;
+  if (groqKey) {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [{ role: "user", content: "「こんにちは」とだけ返してください" }],
+        max_tokens: 50,
+      }),
+    });
+    const json = await res.json();
+    const reply = json.choices?.[0]?.message?.content ?? null;
+    return NextResponse.json({ provider: "Groq", status: res.status, reply });
+  }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: "こんにちはと返してください" }] }],
-      generationConfig: { maxOutputTokens: 50, temperature: 0 },
-    }),
-  });
+  if (geminiKey) {
+    return NextResponse.json({ provider: "Gemini", status: 0, reply: null, note: "Groq not set, Gemini fallback" });
+  }
 
-  const json = await res.json();
-  return NextResponse.json({ status: res.status, keyType: isOAuth ? "OAuth(AQ.)" : "APIKey(AIza)", response: json });
+  return NextResponse.json({ error: "No API keys set" }, { status: 500 });
 }

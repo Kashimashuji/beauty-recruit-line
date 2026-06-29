@@ -1,14 +1,51 @@
-async function callGemini(body: object): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return "";
+// Groq API（優先）またはGemini APIを使ってテキスト生成する
+async function callAI(messages: { role: string; content: string }[], maxTokens = 300, temperature = 0.7): Promise<string> {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    return callGroq(groqKey, messages, maxTokens, temperature);
+  }
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    return callGemini(geminiKey, messages, maxTokens, temperature);
+  }
+  return "";
+}
 
-  // AQ.で始まるトークンはBearerヘッダー、AIzaで始まるキーはクエリパラメータ
+async function callGroq(apiKey: string, messages: { role: string; content: string }[], maxTokens: number, temperature: number): Promise<string> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+    }),
+  });
+  if (!res.ok) return "";
+  const json = await res.json();
+  return json.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function callGemini(apiKey: string, messages: { role: string; content: string }[], maxTokens: number, temperature: number): Promise<string> {
   const isOAuth = apiKey.startsWith("AQ.");
   const url = isOAuth
     ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent`
     : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (isOAuth) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const systemMsg = messages.find(m => m.role === "system");
+  const userMsgs = messages.filter(m => m.role !== "system");
+
+  const body: any = {
+    contents: userMsgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+    generationConfig: { maxOutputTokens: maxTokens, temperature },
+  };
+  if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg.content }] };
 
   const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   if (!res.ok) return "";
@@ -17,11 +54,10 @@ async function callGemini(body: object): Promise<string> {
 }
 
 export async function askGemini(systemPrompt: string, userMessage: string): Promise<string> {
-  return callGemini({
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: "user", parts: [{ text: userMessage }] }],
-    generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
-  });
+  return callAI([
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userMessage },
+  ], 300, 0.7);
 }
 
 export type Intent = "input" | "question" | "cancel" | "correction";
@@ -33,10 +69,6 @@ function keywordFallback(text: string): Intent {
   return "input";
 }
 
-/**
- * ユーザーの発言をGeminiで意図分類する。
- * step: 現在のフロー ("school_name" | "grad_year" | "pref_area" | "booking")
- */
 export async function classifyIntent(text: string, step: string): Promise<Intent> {
   const stepLabel: Record<string, string> = {
     school_name: "専門学校名を入力してもらうステップ",
@@ -57,17 +89,12 @@ User message: 「${text}」
 
 Output one word only (input / question / cancel / correction):`;
 
-  const raw = await callGemini({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { maxOutputTokens: 10, temperature: 0 },
-  });
+  const raw = await callAI([{ role: "user", content: prompt }], 10, 0);
 
   const word = raw.toLowerCase().trim();
   if (word.startsWith("cancel") || word.includes("キャンセル") || word.includes("やめ")) return "cancel";
   if (word.startsWith("correction") || word.includes("修正") || word.includes("戻")) return "correction";
   if (word.startsWith("question") || word.includes("質問") || word.includes("挨拶")) return "question";
-
-  // Geminiが応答しなかった場合はキーワードフォールバック
   if (!word) return keywordFallback(text);
   return "input";
 }
