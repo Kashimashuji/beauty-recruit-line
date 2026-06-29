@@ -20,6 +20,13 @@ export async function askGemini(systemPrompt: string, userMessage: string): Prom
 
 export type Intent = "input" | "question" | "cancel" | "correction";
 
+function keywordFallback(text: string): Intent {
+  if (/やめ|中止|キャンセル|しない|不要|結構|いらない|断る|遠慮/.test(text)) return "cancel";
+  if (/修正|訂正|間違|やり直|戻|変更/.test(text)) return "correction";
+  if (/[？?]|こんにちは|はじめまして|よろしく|おはよう|こんばん|ありがとう|どう|教えて|なぜ|なんで|いつ|どこ|服装|持ち物|給料|待遇|休み/.test(text)) return "question";
+  return "input";
+}
+
 /**
  * ユーザーの発言をGeminiで意図分類する。
  * step: 現在のフロー ("school_name" | "grad_year" | "pref_area" | "booking")
@@ -53,5 +60,8 @@ Output one word only (input / question / cancel / correction):`;
   if (word.startsWith("cancel") || word.includes("キャンセル") || word.includes("やめ")) return "cancel";
   if (word.startsWith("correction") || word.includes("修正") || word.includes("戻")) return "correction";
   if (word.startsWith("question") || word.includes("質問") || word.includes("挨拶")) return "question";
+
+  // Geminiが応答しなかった場合はキーワードフォールバック
+  if (!word) return keywordFallback(text);
   return "input";
 }
