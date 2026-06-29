@@ -303,6 +303,40 @@ export default function AdminPage() {
   const fmt = (iso?: string) =>
     iso ? new Date(iso).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : "-";
 
+  const downloadCsv = (filename: string, headers: string[], rowData: string[][]) => {
+    const bom = "﻿";
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const csv = bom + [headers, ...rowData].map(r => r.map(escape).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadStudentsCsv = (data: any[]) => {
+    downloadCsv(`students_${new Date().toISOString().slice(0,10)}.csv`,
+      ["氏名", "LINE表示名", "学校名", "卒業年度", "希望エリア", "ステータス", "予約日時", "登録日"],
+      data.map(r => [
+        r.full_name ?? "", r.display_name ?? "", r.school_name ?? "",
+        String(r.grad_year ?? ""), r.pref_area ?? "",
+        statusLabel[r.status] ?? r.status,
+        r.booked_at ? fmt(r.booked_at) : "",
+        r.created_at ? fmt(r.created_at) : "",
+      ])
+    );
+  };
+
+  const downloadReservationsCsv = (data: any[]) => {
+    downloadCsv(`reservations_${new Date().toISOString().slice(0,10)}.csv`,
+      ["学生氏名", "学校名", "店舗", "見学日時", "状態"],
+      data.map(r => [
+        r.students?.full_name ?? "", r.students?.school_name ?? "",
+        r.reservation_slots?.stores?.name ?? "",
+        fmt(r.reservation_slots?.starts_at),
+        statusLabel[r.status] ?? r.status,
+      ])
+    );
+  };
+
   const toggleWeekday = (d: number) =>
     setBulkForm(f => ({ ...f, weekdays: f.weekdays.includes(d) ? f.weekdays.filter(x => x !== d) : [...f.weekdays, d] }));
 
@@ -917,10 +951,24 @@ export default function AdminPage() {
                   <span style={{ fontSize: 13, color: "#888", marginLeft: "auto" }}>
                     {filtered.length} / {rows.length} 件
                   </span>
+                  <button onClick={() => downloadStudentsCsv(filtered)}
+                    style={{ padding: "7px 14px", border: "1px solid #06c755", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13, color: "#06803c", fontWeight: 700 }}>
+                    ⬇ CSV
+                  </button>
                 </div>
               </>
             );
           })()}
+          {/* 予約一覧CSVボタン */}
+          {tab === "reservations" && (
+            <div style={{ marginBottom: 12, textAlign: "right" }}>
+              <button onClick={() => downloadReservationsCsv(rows)}
+                style={{ padding: "7px 14px", border: "1px solid #06c755", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13, color: "#06803c", fontWeight: 700 }}>
+                ⬇ CSV ダウンロード（{rows.length}件）
+              </button>
+            </div>
+          )}
+
           {/* 手動対応パネル */}
           {tab === "students" && manualTarget && (
             <div style={{ marginBottom: 20, padding: 16, background: "#fff8e1", borderRadius: 10, maxWidth: 520, border: "1px solid #ffc107" }}>
