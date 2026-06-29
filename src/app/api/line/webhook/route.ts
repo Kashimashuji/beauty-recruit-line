@@ -95,7 +95,7 @@ async function handleOnboarding(lineUserId: string, text: string, student: any) 
     }
   }
 
-  const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン/.test(t);
+  const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン|こんにちは|はじめまして|よろしく|おはよう|こんばん/.test(t);
 
   if (!student.school_name) {
     if (isQuestion(text)) {

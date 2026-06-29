@@ -65,7 +65,7 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
   await handleBookingFlow(lineUserId, text, student, push, botMsg);
 }
 
-const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン/.test(t);
+const isQuestion = (t: string) => /[？?]|どう|教えて|何|いつ|どこ|なぜ|服装|持ち物|アクセス|雰囲気|給料|待遇|休み|仕事|サロン|こんにちは|はじめまして|よろしく|おはよう|こんばん/.test(t);
 
 async function handleOnboarding(lineUserId: string, text: string, student: any, push: (to: string, text: string, buttons?: string[]) => Promise<void>, botMsg: Partial<BotMessages> = {}) {
   if (!student.school_name) {
