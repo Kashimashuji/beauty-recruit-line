@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { pushText } from "@/lib/line";
 
 export const runtime = "nodejs";
 
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
   if (view === "students") {
     const { data, error } = await supabaseAdmin
       .from("students")
-      .select("id, full_name, school_name, grad_year, pref_area, entry_source, status, created_at")
+      .select("id, full_name, display_name, school_name, grad_year, pref_area, entry_source, status, tags, line_user_id, created_at")
       .order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ students: data });
@@ -91,6 +92,34 @@ export async function POST(req: NextRequest) {
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
+  }
+
+  // --- 手動モード切替 ---
+  if (action === "toggle_manual") {
+    const { student_id, manual_mode } = body;
+    if (!student_id) return NextResponse.json({ error: "missing student_id" }, { status: 400 });
+    const { data: student } = await supabaseAdmin.from("students").select("tags").eq("id", student_id).single();
+    const { error } = await supabaseAdmin.from("students")
+      .update({ tags: { ...(student?.tags ?? {}), manual_mode: !!manual_mode } })
+      .eq("id", student_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- 手動メッセージ送信 ---
+  if (action === "send_message") {
+    const { student_id, message } = body;
+    if (!student_id || !message) return NextResponse.json({ error: "missing fields" }, { status: 400 });
+    const { data: student } = await supabaseAdmin.from("students")
+      .select("line_user_id").eq("id", student_id).single();
+    if (!student?.line_user_id) return NextResponse.json({ error: "学生が見つかりません" }, { status: 404 });
+    const hasLine = process.env.LINE_CHANNEL_ACCESS_TOKEN && !process.env.LINE_CHANNEL_ACCESS_TOKEN.startsWith("replace-");
+    if (hasLine) {
+      try { await pushText(student.line_user_id, message); } catch (e) {
+        return NextResponse.json({ error: "LINE送信に失敗しました" }, { status: 500 });
+      }
+    }
+    return NextResponse.json({ ok: true, sent: !!hasLine });
   }
 
   // --- 単体追加 ---

@@ -46,6 +46,9 @@ async function handleMessage(lineUserId: string, text: string, push: (to: string
     return;
   }
 
+  // 手動対応モード中はBotが返信しない
+  if (student.tags?.manual_mode) return;
+
   if (student.status === "friend") {
     await handleOnboarding(lineUserId, text, student, push);
     return;

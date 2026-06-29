@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 type Store = { id: string; name: string };
 type Slot = { id: string; store_id: string; event_type: string; starts_at: string; capacity: number; booked_count: number; stores?: { name: string } };
+type Student = { id: string; full_name: string | null; display_name: string | null; school_name: string | null; grad_year: number | null; pref_area: string | null; entry_source: string | null; status: string; tags: any; line_user_id: string | null };
 
 const EVENT_TYPES = [
   { value: "salon_visit", label: "サロン見学" },
@@ -28,6 +29,8 @@ export default function AdminPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [msg, setMsg] = useState("");
+  const [manualTarget, setManualTarget] = useState<Student | null>(null);
+  const [manualMsg, setManualMsg] = useState("");
 
   // 単体フォーム
   const [singleForm, setSingleForm] = useState({
@@ -65,6 +68,31 @@ export default function AdminPage() {
   }, [tab]);
 
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+
+  const toggleManual = async (student: Student) => {
+    const next = !student.tags?.manual_mode;
+    await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle_manual", student_id: student.id, manual_mode: next }),
+    });
+    setRows(prev => prev.map(r => r.id === student.id ? { ...r, tags: { ...r.tags, manual_mode: next } } : r));
+    if (next) { setManualTarget({ ...student, tags: { ...student.tags, manual_mode: true } }); }
+    else { if (manualTarget?.id === student.id) setManualTarget(null); }
+    showMsg(next ? `${student.display_name ?? student.school_name ?? "学生"}さんを手動対応モードにしました` : "Bot自動返信に戻しました");
+  };
+
+  const sendManual = async () => {
+    if (!manualTarget || !manualMsg.trim()) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send_message", student_id: manualTarget.id, message: manualMsg.trim() }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showMsg(json.sent ? "LINEで送信しました" : "送信記録しました（LINE未接続のため実際には未送信）");
+      setManualMsg("");
+    } else { showMsg(`❌ ${json.error}`); }
+  };
 
   const addSingle = async () => {
     if (!singleForm.store_id || !singleForm.starts_at) { showMsg("❌ 店舗と日時を入力してください。"); return; }
@@ -277,19 +305,39 @@ export default function AdminPage() {
       {/* 予約一覧・学生一覧 */}
       {(tab === "reservations" || tab === "students") && (
         <>
+          {/* 手動対応パネル */}
+          {tab === "students" && manualTarget && (
+            <div style={{ marginBottom: 20, padding: 16, background: "#fff8e1", borderRadius: 10, maxWidth: 520, border: "1px solid #ffc107" }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                🟡 手動対応中：{manualTarget.display_name ?? manualTarget.school_name ?? "学生"}さん
+              </div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>Bot自動返信は停止中です</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={manualMsg}
+                  onChange={e => setManualMsg(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && sendManual()}
+                  placeholder="メッセージを入力してEnter"
+                  style={{ ...inp, marginTop: 0, flex: 1 }}
+                />
+                <button onClick={sendManual} style={{ ...addBtn, marginTop: 0, whiteSpace: "nowrap" }}>送信</button>
+              </div>
+            </div>
+          )}
+
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
                 {tab === "reservations" ? (
                   <><th style={th}>学生</th><th style={th}>学校</th><th style={th}>店舗</th><th style={th}>見学日時</th><th style={th}>状態</th></>
                 ) : (
-                  <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>流入元</th><th style={th}>状態</th></>
+                  <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>状態</th><th style={th}>対応</th></>
                 )}
               </tr>
             </thead>
             <tbody>
               {rows.map(r => (
-                <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+                <tr key={r.id} style={{ borderBottom: "1px solid #eee", background: r.tags?.manual_mode ? "#fffde7" : "transparent" }}>
                   {tab === "reservations" ? (
                     <>
                       <td style={td}>{r.students?.full_name ?? "-"}</td>
@@ -300,12 +348,21 @@ export default function AdminPage() {
                     </>
                   ) : (
                     <>
-                      <td style={td}>{r.full_name ?? "-"}</td>
+                      <td style={td}>{r.display_name ?? r.full_name ?? "-"}</td>
                       <td style={td}>{r.school_name ?? "-"}</td>
                       <td style={td}>{r.grad_year ?? "-"}</td>
                       <td style={td}>{r.pref_area ?? "-"}</td>
-                      <td style={td}>{r.entry_source || "-"}</td>
                       <td style={td}>{statusLabel[r.status] ?? r.status}</td>
+                      <td style={td}>
+                        <button
+                          onClick={() => toggleManual(r as Student)}
+                          style={{
+                            padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none",
+                            background: r.tags?.manual_mode ? "#ffc107" : "#eee",
+                            color: r.tags?.manual_mode ? "#333" : "#666",
+                          }}
+                        >{r.tags?.manual_mode ? "🟡 手動中" : "Bot"}</button>
+                      </td>
                     </>
                   )}
                 </tr>
