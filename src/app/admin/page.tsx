@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 type Store = { id: string; name: string };
+type Slot = { id: string; store_id: string; event_type: string; starts_at: string; capacity: number; booked_count: number; stores?: { name: string } };
 
 const EVENT_TYPES = [
   { value: "salon_visit", label: "サロン見学" },
@@ -10,14 +11,41 @@ const EVENT_TYPES = [
   { value: "consultation", label: "個別相談" },
 ];
 
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+
+const eventLabel: Record<string, string> = {
+  salon_visit: "サロン見学", briefing: "説明会", consultation: "個別相談",
+};
+const statusLabel: Record<string, string> = {
+  friend: "友だち", registered: "会員登録済", booked: "予約済",
+  attended: "参加済", no_show: "不参加", interview: "面接予定", offer: "内定",
+  cancelled: "キャンセル",
+};
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<"reservations" | "students" | "add_slot">("reservations");
+  const [tab, setTab] = useState<"reservations" | "students" | "add_slot" | "slots">("reservations");
   const [rows, setRows] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
-  const [slotForm, setSlotForm] = useState({
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [msg, setMsg] = useState("");
+
+  // 単体フォーム
+  const [singleForm, setSingleForm] = useState({
     store_id: "", event_type: "salon_visit", starts_at: "", capacity: "1",
   });
-  const [slotMsg, setSlotMsg] = useState("");
+
+  // 一括作成フォーム
+  const [bulkForm, setBulkForm] = useState({
+    store_id: "", event_type: "salon_visit",
+    start_date: "", end_date: "", weekdays: [] as number[],
+    time: "10:00", capacity: "1",
+  });
+
+  // コピー用
+  const [copySlot, setCopySlot] = useState<Slot | null>(null);
+  const [copyOffset, setCopyOffset] = useState("7");
+
+  const [addMode, setAddMode] = useState<"single" | "bulk">("single");
 
   useEffect(() => {
     fetch("/api/admin?view=stores").then(r => r.json()).then(j => setStores(j.stores ?? []));
@@ -25,6 +53,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (tab === "add_slot") return;
+    if (tab === "slots") {
+      fetch("/api/admin?view=slots").then(r => r.json()).then(j => setSlots(j.slots ?? []));
+      return;
+    }
     (async () => {
       const res = await fetch(`/api/admin?view=${tab}`);
       const json = await res.json();
@@ -32,139 +64,257 @@ export default function AdminPage() {
     })();
   }, [tab]);
 
-  const addSlot = async () => {
-    setSlotMsg("");
-    if (!slotForm.store_id || !slotForm.starts_at) {
-      setSlotMsg("店舗と日時を入力してください。");
-      return;
+  const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+
+  const addSingle = async () => {
+    if (!singleForm.store_id || !singleForm.starts_at) { showMsg("❌ 店舗と日時を入力してください。"); return; }
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "single", ...singleForm }),
+    });
+    const json = await res.json();
+    if (res.ok) { showMsg("✅ 予約枠を追加しました。"); setSingleForm({ store_id: singleForm.store_id, event_type: "salon_visit", starts_at: "", capacity: "1" }); }
+    else showMsg(`❌ ${json.error}`);
+  };
+
+  const addBulk = async () => {
+    if (!bulkForm.store_id || !bulkForm.start_date || !bulkForm.end_date || bulkForm.weekdays.length === 0) {
+      showMsg("❌ 店舗・期間・曜日を入力してください。"); return;
     }
     const res = await fetch("/api/admin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(slotForm),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "bulk", ...bulkForm }),
+    });
+    const json = await res.json();
+    if (res.ok) { showMsg(`✅ ${json.count}件の予約枠を作成しました。`); }
+    else showMsg(`❌ ${json.error}`);
+  };
+
+  const doCopy = async () => {
+    if (!copySlot) return;
+    const res = await fetch("/api/admin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "copy", slot_id: copySlot.id, offset_days: Number(copyOffset) }),
     });
     const json = await res.json();
     if (res.ok) {
-      setSlotMsg("予約枠を追加しました。");
-      setSlotForm({ store_id: slotForm.store_id, event_type: "salon_visit", starts_at: "", capacity: "1" });
-    } else {
-      setSlotMsg(`エラー: ${json.error}`);
-    }
+      showMsg("✅ 枠をコピーしました。");
+      setCopySlot(null);
+      fetch("/api/admin?view=slots").then(r => r.json()).then(j => setSlots(j.slots ?? []));
+    } else showMsg(`❌ ${json.error}`);
   };
 
   const fmt = (iso?: string) =>
-    iso
-      ? new Date(iso).toLocaleString("ja-JP", {
-          timeZone: "Asia/Tokyo",
-          month: "numeric",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "-";
+    iso ? new Date(iso).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : "-";
 
-  const statusLabel: Record<string, string> = {
-    friend: "友だち", registered: "会員登録済", booked: "予約済",
-    attended: "参加済", no_show: "不参加", interview: "面接予定", offer: "内定",
-    cancelled: "キャンセル",
-  };
+  const toggleWeekday = (d: number) =>
+    setBulkForm(f => ({ ...f, weekdays: f.weekdays.includes(d) ? f.weekdays.filter(x => x !== d) : [...f.weekdays, d] }));
+
+  const tabs = [
+    { key: "reservations", label: "予約一覧" },
+    { key: "students",     label: "学生一覧" },
+    { key: "slots",        label: "枠一覧" },
+    { key: "add_slot",     label: "＋ 予約枠追加" },
+  ] as const;
 
   return (
     <main style={{ padding: 32, fontFamily: "Meiryo, sans-serif" }}>
       <h1 style={{ marginBottom: 20 }}>採用管理ダッシュボード</h1>
+
+      {/* タブ */}
       <div style={{ marginBottom: 16 }}>
-        {(["reservations", "students", "add_slot"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              padding: "8px 20px", marginRight: 8, border: "none", borderRadius: 6,
-              cursor: "pointer", fontWeight: 700,
-              background: tab === t ? "#06c755" : "#eee",
-              color: tab === t ? "#fff" : "#333",
-            }}
-          >
-            {t === "reservations" ? "予約一覧" : t === "students" ? "学生一覧" : "＋ 予約枠追加"}
-          </button>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            padding: "8px 20px", marginRight: 8, border: "none", borderRadius: 6,
+            cursor: "pointer", fontWeight: 700,
+            background: tab === t.key ? "#06c755" : "#eee",
+            color: tab === t.key ? "#fff" : "#333",
+          }}>{t.label}</button>
         ))}
       </div>
 
+      {/* フラッシュメッセージ */}
+      {msg && <p style={{ marginBottom: 16, color: msg.startsWith("❌") ? "#c0392b" : "#06803c" }}>{msg}</p>}
+
+      {/* 予約枠追加タブ */}
       {tab === "add_slot" && (
-        <div style={{ maxWidth: 480 }}>
-          {slotMsg && (
-            <p style={{ color: slotMsg.startsWith("エラー") ? "#c0392b" : "#06803c", marginBottom: 12 }}>
-              {slotMsg}
-            </p>
+        <div style={{ maxWidth: 520 }}>
+          {/* モード切り替え */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+            {(["single", "bulk"] as const).map(m => (
+              <button key={m} onClick={() => setAddMode(m)} style={{
+                padding: "8px 20px", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700,
+                background: addMode === m ? "#333" : "#eee", color: addMode === m ? "#fff" : "#333",
+              }}>{m === "single" ? "1枠追加" : "期間一括作成"}</button>
+            ))}
+          </div>
+
+          {addMode === "single" && (
+            <>
+              <label style={lbl}>店舗
+                <select style={inp} value={singleForm.store_id} onChange={e => setSingleForm({ ...singleForm, store_id: e.target.value })}>
+                  <option value="">-- 選択 --</option>
+                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+              <label style={lbl}>イベント種別
+                <select style={inp} value={singleForm.event_type} onChange={e => setSingleForm({ ...singleForm, event_type: e.target.value })}>
+                  {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </label>
+              <label style={lbl}>日時
+                <input type="datetime-local" style={inp} value={singleForm.starts_at}
+                  onChange={e => setSingleForm({ ...singleForm, starts_at: e.target.value })} />
+              </label>
+              <label style={lbl}>定員（人数）
+                <input type="number" min="1" style={inp} value={singleForm.capacity}
+                  onChange={e => setSingleForm({ ...singleForm, capacity: e.target.value })} />
+              </label>
+              <button style={addBtn} onClick={addSingle}>予約枠を追加する</button>
+            </>
           )}
-          <label style={lbl}>
-            店舗
-            <select style={inp} value={slotForm.store_id} onChange={e => setSlotForm({ ...slotForm, store_id: e.target.value })}>
-              <option value="">-- 選択してください --</option>
-              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <label style={lbl}>
-            イベント種別
-            <select style={inp} value={slotForm.event_type} onChange={e => setSlotForm({ ...slotForm, event_type: e.target.value })}>
-              {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </label>
-          <label style={lbl}>
-            日時
-            <input type="datetime-local" style={inp} value={slotForm.starts_at}
-              onChange={e => setSlotForm({ ...slotForm, starts_at: e.target.value })} />
-          </label>
-          <label style={lbl}>
-            定員（人数）
-            <input type="number" min="1" style={inp} value={slotForm.capacity}
-              onChange={e => setSlotForm({ ...slotForm, capacity: e.target.value })} />
-          </label>
-          <button style={addBtn} onClick={addSlot}>予約枠を追加する</button>
+
+          {addMode === "bulk" && (
+            <>
+              <label style={lbl}>店舗
+                <select style={inp} value={bulkForm.store_id} onChange={e => setBulkForm({ ...bulkForm, store_id: e.target.value })}>
+                  <option value="">-- 選択 --</option>
+                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+              <label style={lbl}>イベント種別
+                <select style={inp} value={bulkForm.event_type} onChange={e => setBulkForm({ ...bulkForm, event_type: e.target.value })}>
+                  {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </label>
+              <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                <label style={{ ...lbl, flex: 1, marginBottom: 0 }}>開始日
+                  <input type="date" style={inp} value={bulkForm.start_date}
+                    onChange={e => setBulkForm({ ...bulkForm, start_date: e.target.value })} />
+                </label>
+                <label style={{ ...lbl, flex: 1, marginBottom: 0 }}>終了日
+                  <input type="date" style={inp} value={bulkForm.end_date}
+                    onChange={e => setBulkForm({ ...bulkForm, end_date: e.target.value })} />
+                </label>
+              </div>
+              <div style={{ marginBottom: 14, fontSize: 14, color: "#333" }}>
+                曜日（複数選択可）
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  {WEEKDAY_LABELS.map((w, i) => (
+                    <button key={i} onClick={() => toggleWeekday(i)} style={{
+                      width: 36, height: 36, borderRadius: "50%", border: "2px solid",
+                      borderColor: bulkForm.weekdays.includes(i) ? "#06c755" : "#ccc",
+                      background: bulkForm.weekdays.includes(i) ? "#06c755" : "#fff",
+                      color: bulkForm.weekdays.includes(i) ? "#fff" : "#333",
+                      fontWeight: 700, cursor: "pointer", fontSize: 13,
+                    }}>{w}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                <label style={{ ...lbl, flex: 1, marginBottom: 0 }}>開始時刻
+                  <input type="time" style={inp} value={bulkForm.time}
+                    onChange={e => setBulkForm({ ...bulkForm, time: e.target.value })} />
+                </label>
+                <label style={{ ...lbl, flex: 1, marginBottom: 0 }}>定員
+                  <input type="number" min="1" style={inp} value={bulkForm.capacity}
+                    onChange={e => setBulkForm({ ...bulkForm, capacity: e.target.value })} />
+                </label>
+              </div>
+              <button style={addBtn} onClick={addBulk}>一括作成する</button>
+            </>
+          )}
         </div>
       )}
 
-      {tab !== "add_slot" && (<table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-        <thead>
-          <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
-            {tab === "reservations" ? (
-              <>
-                <th style={th}>学生</th><th style={th}>学校</th>
-                <th style={th}>店舗</th><th style={th}>見学日時</th><th style={th}>状態</th>
-              </>
-            ) : (
-              <>
-                <th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th>
-                <th style={th}>希望エリア</th><th style={th}>流入元</th><th style={th}>状態</th>
-              </>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
-              {tab === "reservations" ? (
-                <>
-                  <td style={td}>{r.students?.full_name ?? "-"}</td>
-                  <td style={td}>{r.students?.school_name ?? "-"}</td>
-                  <td style={td}>{r.reservation_slots?.stores?.name ?? "-"}</td>
-                  <td style={td}>{fmt(r.reservation_slots?.starts_at)}</td>
-                  <td style={td}>{statusLabel[r.status] ?? r.status}</td>
-                </>
-              ) : (
-                <>
-                  <td style={td}>{r.full_name ?? "-"}</td>
-                  <td style={td}>{r.school_name ?? "-"}</td>
-                  <td style={td}>{r.grad_year ?? "-"}</td>
-                  <td style={td}>{r.pref_area ?? "-"}</td>
-                  <td style={td}>{r.entry_source || "-"}</td>
-                  <td style={td}>{statusLabel[r.status] ?? r.status}</td>
-                </>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>)}
-      {tab !== "add_slot" && rows.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>データがありません。</p>}
+      {/* 枠一覧タブ（コピー機能付き） */}
+      {tab === "slots" && (
+        <>
+          {copySlot && (
+            <div style={{ marginBottom: 20, padding: 16, background: "#f0f9f0", borderRadius: 10, maxWidth: 480 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>コピー元: {fmt(copySlot.starts_at)} ｜ {(copySlot.stores as any)?.name ?? ""} ｜ {eventLabel[copySlot.event_type] ?? copySlot.event_type}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <label style={{ fontSize: 14 }}>
+                  {" "}日後にコピー
+                  <input type="number" min="1" value={copyOffset}
+                    onChange={e => setCopyOffset(e.target.value)}
+                    style={{ ...inp, width: 80, display: "inline-block", marginLeft: 8, marginTop: 0 }} />
+                </label>
+                <button style={addBtn} onClick={doCopy}>コピー実行</button>
+                <button onClick={() => setCopySlot(null)} style={{ padding: "10px 16px", border: "1px solid #ccc", borderRadius: 8, background: "#fff", cursor: "pointer" }}>キャンセル</button>
+              </div>
+            </div>
+          )}
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
+                <th style={th}>日時</th><th style={th}>店舗</th><th style={th}>種別</th>
+                <th style={th}>定員</th><th style={th}>予約数</th><th style={th}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {slots.map(s => (
+                <tr key={s.id} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={td}>{fmt(s.starts_at)}</td>
+                  <td style={td}>{(s.stores as any)?.name ?? "-"}</td>
+                  <td style={td}>{eventLabel[s.event_type] ?? s.event_type}</td>
+                  <td style={td}>{s.capacity}</td>
+                  <td style={td}>{s.booked_count ?? 0}</td>
+                  <td style={td}>
+                    <button onClick={() => { setCopySlot(s); setCopyOffset("7"); }} style={{
+                      padding: "4px 12px", background: "#e8f5e9", border: "1px solid #06c755",
+                      borderRadius: 6, cursor: "pointer", fontSize: 13, color: "#06803c", fontWeight: 700,
+                    }}>コピー</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {slots.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>データがありません。</p>}
+        </>
+      )}
+
+      {/* 予約一覧・学生一覧 */}
+      {(tab === "reservations" || tab === "students") && (
+        <>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
+                {tab === "reservations" ? (
+                  <><th style={th}>学生</th><th style={th}>学校</th><th style={th}>店舗</th><th style={th}>見学日時</th><th style={th}>状態</th></>
+                ) : (
+                  <><th style={th}>氏名</th><th style={th}>学校</th><th style={th}>卒業年度</th><th style={th}>希望エリア</th><th style={th}>流入元</th><th style={th}>状態</th></>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+                  {tab === "reservations" ? (
+                    <>
+                      <td style={td}>{r.students?.full_name ?? "-"}</td>
+                      <td style={td}>{r.students?.school_name ?? "-"}</td>
+                      <td style={td}>{r.reservation_slots?.stores?.name ?? "-"}</td>
+                      <td style={td}>{fmt(r.reservation_slots?.starts_at)}</td>
+                      <td style={td}>{statusLabel[r.status] ?? r.status}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={td}>{r.full_name ?? "-"}</td>
+                      <td style={td}>{r.school_name ?? "-"}</td>
+                      <td style={td}>{r.grad_year ?? "-"}</td>
+                      <td style={td}>{r.pref_area ?? "-"}</td>
+                      <td style={td}>{r.entry_source || "-"}</td>
+                      <td style={td}>{statusLabel[r.status] ?? r.status}</td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length === 0 && <p style={{ marginTop: 20, color: "#999" }}>データがありません。</p>}
+        </>
+      )}
     </main>
   );
 }
@@ -172,5 +322,5 @@ export default function AdminPage() {
 const th: React.CSSProperties = { padding: "10px 12px", fontWeight: 700 };
 const td: React.CSSProperties = { padding: "10px 12px" };
 const lbl: React.CSSProperties = { display: "block", marginBottom: 14, fontSize: 14, color: "#333" };
-const inp: React.CSSProperties = { display: "block", width: "100%", padding: "10px 12px", marginTop: 4, border: "1px solid #ccc", borderRadius: 8, fontSize: 15 };
+const inp: React.CSSProperties = { display: "block", width: "100%", padding: "10px 12px", marginTop: 4, border: "1px solid #ccc", borderRadius: 8, fontSize: 15, boxSizing: "border-box" };
 const addBtn: React.CSSProperties = { marginTop: 8, padding: "12px 24px", background: "#06c755", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer" };
