@@ -19,7 +19,7 @@ async function callGroq(apiKey: string, messages: { role: string; content: strin
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
+      model: "gemma2-9b-it",
       messages,
       max_tokens: maxTokens,
       temperature,
