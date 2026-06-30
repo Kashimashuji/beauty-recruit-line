@@ -64,7 +64,7 @@ export default function DemoPage() {
       <div style={header}>
         <div style={avatar}>🤖</div>
         <div>
-          <div style={{ fontWeight: 700 }}>美容採用 Bot</div>
+          <div style={{ fontWeight: 700 }}>SEYFERT</div>
           <div style={{ fontSize: 12, color: "#aaa" }}>デモ（UID: {TEST_UID}）</div>
         </div>
       </div>
