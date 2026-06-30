@@ -217,10 +217,10 @@ async function handleBookingFlow(
   if (["予約", "よやく", "予約したい", "予約する", "別の枠も予約する"].includes(text)) {
     const { data: slots } = await supabaseAdmin
       .from("reservation_slots")
-      .select("id, starts_at, capacity, booked_count, event_type, stores(name)")
+      .select("id, starts_at, capacity, booked_count, event_type, stores(name, address)")
       .gte("starts_at", new Date().toISOString())
       .order("starts_at")
-      .limit(10);
+      .limit(20);
 
     const available = (slots ?? []).filter((s: any) => s.booked_count < s.capacity);
     if (available.length === 0) {
@@ -228,23 +228,42 @@ async function handleBookingFlow(
       return;
     }
 
+    // 希望エリアで絞り込み
+    const prefArea: string = student.pref_area ?? "";
+    const areaKeywords = prefArea.replace(/[都道府県市区町村内]+$/, "").split(/[・、\s]+/).filter(Boolean);
+
+    const matchesArea = (s: any) => {
+      if (!prefArea || areaKeywords.length === 0) return true;
+      const addr: string = s.stores?.address ?? "";
+      return areaKeywords.some(kw => addr.includes(kw));
+    };
+
+    const areaMatched = available.filter(matchesArea);
+    const showSlots = areaMatched.length > 0 ? areaMatched : available;
+    const isFiltered = areaMatched.length > 0 && areaMatched.length < available.length;
+    const displaySlots = showSlots.slice(0, 10);
+
     const eventLabel: Record<string, string> = { salon_visit: "サロン見学", briefing: "説明会", consultation: "個別相談" };
-    const slotLabels = available.map((s: any) => {
+    const slotLabels = displaySlots.map((s: any) => {
       const dt = new Date(s.starts_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
       const store = (s.stores?.name ?? "").replace(/^AGU hair\s*/i, "");
       const ev = { salon_visit: "見学", briefing: "説明会", consultation: "相談" }[s.event_type as string] ?? s.event_type;
       return `${dt} ${store}｜${ev} 残${s.capacity - s.booked_count}`;
     });
-    const lines = available.map((s: any) => {
+    const lines = displaySlots.map((s: any) => {
       const dt = new Date(s.starts_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
       return `${dt}\n   ${s.stores?.name ?? ""}｜${eventLabel[s.event_type] ?? s.event_type}｜残${s.capacity - s.booked_count}名`;
     });
 
+    const header = isFiltered
+      ? `📍 ${prefArea}エリアの予約可能な枠です。\n\nボタンを押して選んでください。`
+      : `予約可能な枠は以下の通りです。\n\nボタンを押して選んでください。`;
+
     await supabaseAdmin.from("students")
-      .update({ tags: { ...tags, pending_slots: available.map((s: any) => s.id), slot_labels: slotLabels } })
+      .update({ tags: { ...tags, pending_slots: displaySlots.map((s: any) => s.id), slot_labels: slotLabels } })
       .eq("line_user_id", lineUserId);
 
-    await push(lineUserId, `予約可能な枠は以下の通りです。\n\nボタンを押して選んでください。\n\n${lines.join("\n\n")}`, slotLabels);
+    await push(lineUserId, `${header}\n\n${lines.join("\n\n")}`, slotLabels);
     return;
   }
 
