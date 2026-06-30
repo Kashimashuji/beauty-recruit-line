@@ -1,12 +1,13 @@
 // Groq API（優先）またはGemini APIを使ってテキスト生成する
 async function callAI(messages: { role: string; content: string }[], maxTokens = 300, temperature = 0.7): Promise<string> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const result = await callGemini(geminiKey, messages, maxTokens, temperature);
+    if (result) return result;
+  }
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
     return callGroq(groqKey, messages, maxTokens, temperature);
-  }
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    return callGemini(geminiKey, messages, maxTokens, temperature);
   }
   return "";
 }
