@@ -34,8 +34,8 @@ async function callGroq(apiKey: string, messages: { role: string; content: strin
 async function callGemini(apiKey: string, messages: { role: string; content: string }[], maxTokens: number, temperature: number): Promise<string> {
   const isOAuth = apiKey.startsWith("AQ.");
   const url = isOAuth
-    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent`
-    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
+    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent`
+    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (isOAuth) headers["Authorization"] = `Bearer ${apiKey}`;
 
