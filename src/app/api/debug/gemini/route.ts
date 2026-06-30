@@ -33,7 +33,7 @@ export async function GET() {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
       body: JSON.stringify({
-        model: "gemma2-9b-it",
+        model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: "「こんにちは」とだけ返してください" }],
         max_tokens: 50,
       }),
